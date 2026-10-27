@@ -22,8 +22,11 @@ $g.FillEllipse($earbudFill, 112, 104, 126, 126)
 $g.FillEllipse($earbudShade, 128, 112, 96, 112)
 
 # Rounded stems
-$g.FillRectangle($earbudFill, 56, 141, 31, 34)`n$g.FillEllipse($earbudFill, 56, 126, 31, 31)`n$g.FillEllipse($earbudFill, 56, 160, 31, 31)
-$g.FillRectangle($earbudFill, 170, 220, 31, 20)`n$g.FillEllipse($earbudFill, 170, 207, 31, 31)
+$g.FillRectangle($earbudFill, 56, 141, 31, 34)
+$g.FillEllipse($earbudFill, 56, 126, 31, 31)
+$g.FillEllipse($earbudFill, 56, 160, 31, 31)
+$g.FillRectangle($earbudFill, 170, 220, 31, 20)
+$g.FillEllipse($earbudFill, 170, 207, 31, 31)
 
 # Face marks and smiles
 $g.FillEllipse($black, 40, 65, 13, 27)
