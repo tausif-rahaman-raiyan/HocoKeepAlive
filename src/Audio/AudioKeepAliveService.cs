@@ -233,7 +233,30 @@ public sealed class AudioKeepAliveService : IDisposable
     private void SetState(AudioEngineState newState, string? message = null)
     {
         _state = newState;
-        StateChanged?.Invoke(newState, message);
+
+        // One faulty UI/plugin subscriber must not break audio lifecycle transitions.
+        var handlers = StateChanged;
+        if (handlers == null) return;
+
+        foreach (Action<AudioEngineState, string?> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(newState, message);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    LogService.Log(LogSeverity.Warning, "AudioEngine",
+                        "A state-change subscriber failed; the audio engine will continue.", ex.ToString());
+                }
+                catch
+                {
+                    // Diagnostics must never interrupt audio playback or cleanup.
+                }
+            }
+        }
     }
 
     public void Dispose()
