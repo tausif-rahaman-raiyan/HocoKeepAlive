@@ -36,14 +36,6 @@ public sealed class KeepAliveContext : ApplicationContext
         // System Tray Context Menu
         var menu = new ContextMenuStrip();
 
-        _statusItem = new ToolStripMenuItem("HOCO KeepAlive — Stopped")
-        {
-            Enabled = false,
-            Font = new Font(Control.DefaultFont, FontStyle.Bold)
-        };
-        menu.Items.Add(_statusItem);
-        menu.Items.Add(new ToolStripSeparator());
-
         _toggleItem = new ToolStripMenuItem("Start Keep-Alive", null, (_, _) => _audioService.Toggle())
         {
             Font = new Font(Control.DefaultFont, FontStyle.Bold)
@@ -51,11 +43,6 @@ public sealed class KeepAliveContext : ApplicationContext
         menu.Items.Add(_toggleItem);
 
         menu.Items.Add(new ToolStripMenuItem("Open Dashboard", null, (_, _) => ShowPage("Overview")));
-        menu.Items.Add(new ToolStripMenuItem("Select Audio Device...", null, (_, _) => ShowPage("Audio Device")));
-        menu.Items.Add(new ToolStripMenuItem("Settings...", null, (_, _) => ShowPage("Settings")));
-        menu.Items.Add(new ToolStripMenuItem("Troubleshooting...", null, (_, _) => ShowPage("Troubleshooting")));
-        menu.Items.Add(new ToolStripMenuItem("About & Updates...", null, (_, _) => ShowPage("About & Updates")));
-
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApp()));
 
@@ -138,7 +125,6 @@ public sealed class KeepAliveContext : ApplicationContext
         switch (state)
         {
             case AudioEngineState.Running:
-                _statusItem.Text = "HOCO KeepAlive — Running silently";
                 _toggleItem.Text = "Stop Keep-Alive";
                 _tray.Text = "HOCO KeepAlive — Running";
                 if (_settings.ShowNotifications && _settings.NotifyOnStartStop)
@@ -148,7 +134,6 @@ public sealed class KeepAliveContext : ApplicationContext
                 break;
 
             case AudioEngineState.DeviceUnavailable:
-                _statusItem.Text = "HOCO KeepAlive — Device unavailable";
                 _toggleItem.Text = "Retry Connection";
                 _tray.Text = "HOCO KeepAlive — Unavailable";
                 if (_settings.ShowNotifications && _settings.NotifyOnError)
@@ -158,7 +143,6 @@ public sealed class KeepAliveContext : ApplicationContext
                 break;
 
             case AudioEngineState.Error:
-                _statusItem.Text = "HOCO KeepAlive — Error";
                 _toggleItem.Text = "Retry Keep-Alive";
                 _tray.Text = "HOCO KeepAlive — Error";
                 if (_settings.ShowNotifications && _settings.NotifyOnError)
@@ -168,7 +152,6 @@ public sealed class KeepAliveContext : ApplicationContext
                 break;
 
             default:
-                _statusItem.Text = "HOCO KeepAlive — Stopped";
                 _toggleItem.Text = "Start Keep-Alive";
                 _tray.Text = "HOCO KeepAlive — Stopped";
                 if (_settings.ShowNotifications && _settings.NotifyOnStartStop && state == AudioEngineState.Stopped)
