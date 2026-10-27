@@ -48,8 +48,13 @@ internal sealed class KeepAliveContext : ApplicationContext
 
     private static Icon LoadIcon()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "assets", "hoco-keepalive.ico");
-        try { if (File.Exists(path)) return new Icon(path); } catch { }
+        try
+        {
+            // The icon is embedded in the EXE at build time, so no sidecar icon file is required.
+            using var icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (icon is not null) return (Icon)icon.Clone();
+        }
+        catch { }
         return SystemIcons.Application;
     }
 
