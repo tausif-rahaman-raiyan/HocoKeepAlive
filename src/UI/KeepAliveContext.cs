@@ -131,7 +131,6 @@ public sealed class KeepAliveContext : ApplicationContext
                 _uiDispatcher.BeginInvoke(new Action(() => OnAudioStateChanged(state, message)));
             }
             catch (InvalidOperationException) { /* The UI is shutting down. */ }
-            catch (ObjectDisposedException) { /* The UI is shutting down. */ }
             return;
         }
 
