@@ -8,7 +8,6 @@ namespace HocoKeepAlive.UI;
 public sealed class KeepAliveContext : ApplicationContext
 {
     private readonly NotifyIcon _tray;
-    private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _toggleItem;
     private readonly AudioKeepAliveService _audioService;
     private readonly AppSettings _settings;
