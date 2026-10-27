@@ -219,8 +219,17 @@ public sealed class MainForm : Form
         // Wire service events
         _audioService.StateChanged += (_, _) =>
         {
-            if (InvokeRequired) Invoke(UpdateEngineDisplay);
-            else UpdateEngineDisplay();
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(UpdateEngineDisplay)); }
+                catch (InvalidOperationException) { /* The form is closing. */ }
+            }
+            else
+            {
+                UpdateEngineDisplay();
+            }
         };
 
         _statsTimer = new System.Windows.Forms.Timer { Interval = 1000 };
