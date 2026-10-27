@@ -52,8 +52,8 @@ public sealed class MainForm : Form
 
         Icon = appIcon;
         Text = "HOCO KeepAlive";
-        ClientSize = new Size(1000, 680);
-        MinimumSize = new Size(820, 560);
+        ClientSize = new Size(1120, 760);
+        MinimumSize = new Size(1000, 650);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = BgMain;
         ForeColor = TextPrimary;
@@ -170,6 +170,10 @@ public sealed class MainForm : Form
         pnlSidebarFooter.Controls.Add(lblStatusIndicator);
         pnlSidebarFooter.Controls.Add(lnkGithub);
         _sidebarPanel.Controls.Add(pnlSidebarFooter);
+        // Keep the fill-docked navigation behind the fixed header and footer.
+        pnlNav.SendToBack();
+        pnlBrand.BringToFront();
+        pnlSidebarFooter.BringToFront();
 
         // --- Main Content Area (Right) ---
         var pnlMainArea = new Panel
@@ -195,8 +199,8 @@ public sealed class MainForm : Form
             BackColor = SurfaceSecondary,
             TextAlign = ContentAlignment.MiddleCenter,
             Size = new Size(110, 28),
-            Location = new Point(pnlTopHeader.Width - 140, 14),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Dock = DockStyle.Right,
+            Margin = new Padding(0, 0, 0, 0)
         };
         pnlTopHeader.Controls.Add(_lblTopStatusPill);
 
