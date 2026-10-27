@@ -14,20 +14,30 @@ OutputDir=installer-output
 OutputBaseFilename=HOCO-KeepAlive-Setup-1.0.0
 SetupIconFile=assets\hoco-keepalive.ico
 ArchitecturesInstallIn64BitMode=x64
-Compression=lzma2
+Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#MyExeName}
 
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
 [Tasks]
-Name: "startup"; Description: "Start HOCO KeepAlive when I sign in to Windows"; GroupDescription: "Optional:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "startup"; Description: "Start HOCO KeepAlive when I sign in to Windows"; GroupDescription: "Windows Startup:"; Flags: unchecked
 
 [Files]
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"
-Name: "{autodesktop}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"; Tasks: startup
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"; Tasks: desktopicon
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HOCO KeepAlive"; ValueData: """{app}\{#MyExeName}"" --minimized"; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\{#MyExeName}"; Description: "Launch HOCO KeepAlive"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

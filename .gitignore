@@ -1,6 +1,17 @@
+# Build outputs
 bin/
 obj/
 publish/
 installer-output/
+*.zip
+
+# Visual Studio / Rider
 *.user
 *.suo
+.vs/
+.idea/
+
+# Node / Web
+node_modules/
+dist/
+.DS_Store

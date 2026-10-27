@@ -1,0 +1,6 @@
+{
+  "name": "HOCO KeepAlive",
+  "description": "Silent Bluetooth audio keep-alive web utility to prevent wireless speakers and earbuds like HOCO HC22 from disconnecting during pauses.",
+  "permissions": [],
+  "capabilities": []
+}

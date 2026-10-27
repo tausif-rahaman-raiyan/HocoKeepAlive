@@ -15,7 +15,9 @@
     <Company>Raiyan</Company>
     <Product>HOCO KeepAlive</Product>
   </PropertyGroup>
+
   <ItemGroup>
+    <EmbeddedResource Include="assets\hoco-keepalive.ico" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 </Project>

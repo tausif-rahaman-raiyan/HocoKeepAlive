@@ -1,38 +1,184 @@
 # HOCO KeepAlive
 
-A small Windows 10/11 notification-area utility that plays digital silence to test whether keeping a Windows audio stream open helps prevent the HOCO HC22 from disconnecting during pauses.
+[![Build HOCO KeepAlive for Windows](https://github.com/tausif-rahaman-raiyan/HocoKeepAlive/actions/workflows/build.yml/badge.svg)](https://github.com/tausif-rahaman-raiyan/HocoKeepAlive/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078d4.svg)]()
+[![Framework](https://img.shields.io/badge/.NET-8.0-512bd4.svg)]()
+
+**HOCO KeepAlive** is a lightweight, low-overhead Windows notification-area (system tray) utility designed to help keep the **HOCO HC22** Bluetooth speaker (and other wireless speakers or headphones) connected during long periods of silence by maintaining an active, continuous digital silent audio stream through the selected Windows playback output device.
+
+---
+
+## Table of Contents
+1. [Overview & How It Works](#overview--how-it-works)
+2. [Supported Windows Versions](#supported-windows-versions)
+3. [Features](#features)
+4. [Download & Deliverables](#download--deliverables)
+5. [Installation & Setup](#installation--setup)
+6. [Portable Mode](#portable-mode)
+7. [How to Use](#how-to-use)
+8. [Device Selection (HOCO HC22)](#device-selection-hoco-hc22)
+9. [Windows Startup Configuration](#windows-startup-configuration)
+10. [Battery & Power Consumption Notice](#battery--power-consumption-notice)
+11. [Known Limitations & Disclaimers](#known-limitations--disclaimers)
+12. [Troubleshooting Guide](#troubleshooting-guide)
+13. [Local Build from Source](#local-build-from-source)
+14. [License](#license)
+
+---
+
+## Overview & How It Works
+
+Many Bluetooth speakers—including the HOCO HC22—incorporate aggressive power-saving firmware. When Windows stops playing audio for several minutes, the Bluetooth audio sink goes idle. The speaker or adapter may turn off its internal amplifier, suspend the Bluetooth link, or enter a deep sleep timeout, requiring reconnecting or power cycling.
+
+**HOCO KeepAlive** solves this by supplying a continuous stream of digital silence (zero-value PCM audio buffers) at **48,000 Hz, 16-bit stereo** directly to the audio output endpoint via NAudio:
+- Zero audible noise, music, or volume changes.
+- Uses low-latency audio callbacks with static buffer clearing (`Array.Clear`), consuming near **0% CPU** and negligible memory.
+- Windows audio subsystem and Bluetooth A2DP audio link remain actively engaged.
+
+---
+
+## Supported Windows Versions
+
+- **Windows 11** (64-bit, all editions)
+- **Windows 10** (64-bit, version 1809 or later)
+- No separate .NET installation is required (the executable is compiled as a self-contained single-file application).
+
+---
 
 ## Features
-- Standard Windows application icon and notification-area icon. Windows may place the tray icon under **Show hidden icons** based on taskbar settings.
-- Right-click the tray icon to start or stop the silent stream, view battery guidance, or exit.
-- No audible tones, music, microphone access, recording, registry changes, or driver changes.
-- Low-overhead audio callback; the app does not poll continuously.
-- GitHub Actions builds a self-contained Windows x64 app ZIP and setup installer.
 
-## Speaker battery note
-There is no way to guarantee both a permanently active Bluetooth audio link and zero additional speaker battery use. The speaker and Bluetooth radio remain active while the audio link is maintained. This app uses silence rather than music, but silence does **not** guarantee lower Bluetooth battery consumption. For best battery life, leave keep-alive stopped when you do not need it. Do not use continuous keep-alive while running on battery unless the connection benefit is worth it.
+- **Custom Cute Earbuds Icon**: Features the dual-earbud visual design in multiple resolutions (16x16 to 256x256), embedded directly into the executable, tray icon, and installer.
+- **System Tray Native**: Runs silently in the Windows taskbar notification area; double-click the tray icon to open the status dashboard.
+- **Audio Output Selection**: Easily select the HOCO HC22 or any connected Windows playback device.
+- **Graceful Error Recovery**: Detects when devices disconnect or become unavailable without crashing or looping indefinitely.
+- **Optional Windows Sign-in Startup**: Start automatically when logging into Windows via clean user registry configuration.
+- **Single Instance Enforcement**: Protects against running multiple conflicting instances.
 
-## Limitations
-Windows, the Bluetooth adapter, or the speaker firmware may still disconnect the link. This app cannot guarantee a permanent connection. It starts stopped so you can choose when to trade battery life for a potentially more persistent audio connection.
+---
 
-## Download
-Open **Actions → latest successful Build Windows app run → Artifacts → HocoKeepAlive-Windows**. The ZIP and installer are in the artifact. Tag a release like `v1.0.0` to attach both files to a GitHub Release.
+## Download & Deliverables
 
-## Use
-1. Install or extract the ZIP.
-2. Launch **HOCO KeepAlive.exe**; it stays in the notification area.
-3. Right-click the tray icon and select **Start silent keep-alive**.
-4. Ensure **HOCO HC22** is selected as the Windows playback output.
-5. Select **Stop silent keep-alive** when you no longer need it.
+Every commit and tag triggers an automated, sequential GitHub Actions workflow that produces three verified deliverables:
 
-## Build locally
-On Windows with the .NET 8 SDK and Inno Setup installed:
+1. **`HOCO-KeepAlive-Setup-1.0.0.exe`**: Clean Inno Setup installer with optional desktop shortcut and startup registration.
+2. **`HocoKeepAlive-Windows-x64.zip`**: Zero-install portable edition.
+3. **`HOCO KeepAlive.exe`**: Self-contained single-file executable.
+
+### How to Download from GitHub Actions
+1. Go to **Actions** in the GitHub repository.
+2. Click on the latest workflow run on `main`.
+3. Scroll to the **Artifacts** section at the bottom.
+4. Download the **`HocoKeepAlive-Windows`** artifact ZIP containing all three files.
+
+### How to Install from a GitHub Release
+When a release tag like `v1.0.0` is published, the setup executable and portable ZIP are attached directly to the release page.
+
+---
+
+## Installation & Setup
+
+1. Download **`HOCO-KeepAlive-Setup-1.0.0.exe`**.
+2. Run the installer (runs with standard user privileges; no administrator rights required).
+3. Follow the wizard prompts to optionally add a desktop shortcut or enable launch on Windows sign-in.
+4. Click **Finish** to launch HOCO KeepAlive.
+
+---
+
+## Portable Mode
+
+If you prefer not to install:
+1. Download **`HocoKeepAlive-Windows-x64.zip`**.
+2. Extract the ZIP into any user folder (e.g., `Documents\HOCO KeepAlive`).
+3. Double-click **`HOCO KeepAlive.exe`**.
+4. Settings are stored in your per-user `%APPDATA%\HocoKeepAlive\settings.json` file.
+
+---
+
+## How to Use
+
+1. Launch **HOCO KeepAlive**.
+2. The app icon appears in your notification area (taskbar tray, next to the clock). Windows may place it under the **^ (Show hidden icons)** chevron.
+3. **Start Keep-Alive**: Right-click the tray icon and select **Start silent keep-alive** (or click the button in the main window).
+4. **Stop Keep-Alive**: Right-click the tray icon and select **Stop silent keep-alive** whenever you do not need it.
+5. **Open Status Window**: Double-click the tray icon or right-click and select **Open Status & Devices...**.
+
+---
+
+## Device Selection (HOCO HC22)
+
+1. Open the Status Window by double-clicking the tray icon.
+2. In the **Audio Playback Device** dropdown, select your **HOCO HC22** (or keep "Windows Default Playback Device" if the HC22 is already set as your default).
+3. If you just paired your speaker, click **Refresh** to reload the device list.
+4. If the speaker disconnects, the app displays `Device unavailable` and safely waits for the device to return without busy-waiting.
+
+---
+
+## Windows Startup Configuration
+
+To have HOCO KeepAlive launch automatically when you sign in to Windows:
+1. Open the Status Window and click **Settings...**.
+2. Check **Start HOCO KeepAlive when I sign in to Windows**.
+3. Click **Save**.
+*(This registers an entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and requires no administrator privileges).*
+
+---
+
+## Battery & Power Consumption Notice
+
+> **Important Battery Note:**
+> An active silent audio stream prevents the Bluetooth radio and speaker amplifier from entering standby. While playing digital silence consumes less computational power than music, **silence does NOT guarantee zero battery drain**.
+>
+> The Bluetooth transmitter on your PC and the receiver/amplifier inside the HOCO HC22 remain in high-power communication mode. For best battery life on both your PC and your speaker, **stop the keep-alive stream when not in use**.
+
+---
+
+## Known Limitations & Disclaimers
+
+- **Firmware Hard Sleeps**: Some Bluetooth speaker models or firmware revisions have strict internal power-off timers that measure audio sample amplitude directly in hardware. If zero amplitude is detected for 10-15 minutes, the hardware may shut off regardless of an active connection.
+- **Physical Disconnections**: This software cannot prevent disconnects caused by low battery, excessive distance, radio frequency interference, or Windows entering Sleep / Modern Standby.
+- **No Inaudible Tone Guarantee**: This utility uses absolute zero PCM (`0x00`), which is completely silent. It does not inject ultrasonic or sub-audible dither tones that could distort your hardware.
+
+---
+
+## Troubleshooting Guide
+
+| Issue | Solution |
+|---|---|
+| **Speaker still powers off after 10 minutes** | Verify in Windows Sound Settings that **HOCO HC22 Stereo** is set as default output rather than Hands-Free AG Audio. Check speaker battery level. |
+| **Tray icon not visible** | Click the **^** (arrow) on the Windows taskbar. Drag the cute earbud icon into the visible taskbar area. |
+| **"Device unavailable" warning** | Turn on the HOCO HC22 and ensure Bluetooth is paired and connected in Windows Settings. Click **Refresh** in the main window. |
+| **Windows turns off Bluetooth adapter** | Open **Device Manager** > **Bluetooth** > your Bluetooth adapter > **Properties** > **Power Management** > uncheck *"Allow the computer to turn off this device to save power"*. |
+
+---
+
+## Local Build from Source
+
+Requirements:
+- Windows 10/11 x64
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Inno Setup 6 (optional, for compiling the setup installer)
+
 ```powershell
+# 1. Clone repository
+git clone https://github.com/tausif-rahaman-raiyan/HocoKeepAlive.git
+cd HocoKeepAlive
+
+# 2. Generate and validate multi-resolution icon
 ./scripts/Generate-Icon.ps1
-dotnet restore
+
+# 3. Restore and run automated tests
+dotnet test tests/HocoKeepAlive.Tests/HocoKeepAlive.Tests.csproj
+
+# 4. Publish self-contained executable
 dotnet publish HocoKeepAlive.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
-iscc installer.iss
+
+# 5. Build installer (requires Inno Setup)
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ```
 
+---
+
 ## License
-MIT
+
+This project is licensed under the [MIT License](LICENSE).

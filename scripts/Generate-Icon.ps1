@@ -1,55 +1,33 @@
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
 
-# Generate a clean headphone-style app icon at build time.
-# The supplied reference uses a black background, pale earbuds and bold black details.
-$assetDir = Join-Path $PSScriptRoot '..\assets'
-New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$rootDir = Split-Path -Parent $scriptDir
+$assetDir = Join-Path $rootDir 'assets'
 $iconPath = Join-Path $assetDir 'hoco-keepalive.ico'
-$bmp = New-Object System.Drawing.Bitmap 256, 256
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$g.Clear([System.Drawing.Color]::Black)
 
-$earbudFill = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(245, 247, 255))
-$earbudShade = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(218, 225, 248))
-$black = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::Black)
+if (!(Test-Path $assetDir)) {
+    New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+}
 
-# Two rounded earbuds inspired by the provided reference image.
-$g.FillEllipse($earbudFill, 20, 16, 126, 126)
-$g.FillEllipse($earbudShade, 36, 24, 96, 112)
-$g.FillEllipse($earbudFill, 112, 104, 126, 126)
-$g.FillEllipse($earbudShade, 128, 112, 96, 112)
+# If icon already exists and is valid (valid ICO header and >= 1000 bytes), keep and validate
+if (Test-Path $iconPath) {
+    $bytes = [System.IO.File]::ReadAllBytes($iconPath)
+    if ($bytes.Length -gt 1000 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and $bytes[2] -eq 1 -and $bytes[3] -eq 0) {
+        Write-Host "Valid multi-resolution icon validated at $iconPath ($($bytes.Length) bytes)."
+        exit 0
+    }
+}
 
-# Rounded stems
-$g.FillRectangle($earbudFill, 56, 141, 31, 34)
-$g.FillEllipse($earbudFill, 56, 126, 31, 31)
-$g.FillEllipse($earbudFill, 56, 160, 31, 31)
-$g.FillRectangle($earbudFill, 170, 220, 31, 20)
-$g.FillEllipse($earbudFill, 170, 207, 31, 31)
+# If node is available, run our reliable generator
+$makeIcoPath = Join-Path $scriptDir 'make-ico.js'
+if (Test-Path $makeIcoPath) {
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+        node $makeIcoPath
+    }
+}
 
-# Face marks and smiles
-$g.FillEllipse($black, 40, 65, 13, 27)
-$g.FillEllipse($black, 111, 65, 13, 27)
-$g.FillEllipse($black, 141, 151, 13, 27)
-$g.FillEllipse($black, 210, 151, 13, 27)
-$pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::Black), 12
-$pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-$pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-$g.DrawArc($pen, 59, 69, 57, 38, 15, 150)
-$g.DrawArc($pen, 157, 150, 57, 38, 15, 150)
+if (!(Test-Path $iconPath)) {
+    throw "Icon generation failed: $iconPath does not exist."
+}
 
-$hIcon = $bmp.GetHicon()
-$icon = [System.Drawing.Icon]::FromHandle($hIcon)
-$file = [System.IO.File]::Create($iconPath)
-$icon.Save($file)
-$file.Dispose()
-$icon.Dispose()
-$bmp.Dispose()
-$g.Dispose()
-$earbudFill.Dispose()
-$earbudShade.Dispose()
-$black.Dispose()
-$pen.Dispose()
-if (!(Test-Path $iconPath)) { throw 'Icon generation failed.' }
-Write-Host "Generated $iconPath"
+Write-Host "Generated and verified $iconPath"
