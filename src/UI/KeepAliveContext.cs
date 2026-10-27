@@ -13,12 +13,16 @@ public sealed class KeepAliveContext : ApplicationContext
     private readonly AudioKeepAliveService _audioService;
     private readonly AppSettings _settings;
     private readonly Icon _appIcon;
+    private readonly Control _uiDispatcher;
     private MainForm? _mainForm;
     private bool _isExiting;
 
     public KeepAliveContext(bool startMinimized)
     {
         _settings = AppSettings.Load();
+        // Own a WinForms handle so audio callbacks can safely marshal tray updates to the UI thread.
+        _uiDispatcher = new Control();
+        _ = _uiDispatcher.Handle;
         _audioService = new AudioKeepAliveService
         {
             TargetDeviceNumber = _settings.PreferredDeviceNumber,
@@ -118,6 +122,20 @@ public sealed class KeepAliveContext : ApplicationContext
 
     private void OnAudioStateChanged(AudioEngineState state, string? message)
     {
+        if (_isExiting || _uiDispatcher.IsDisposed || !_uiDispatcher.IsHandleCreated) return;
+
+        if (_uiDispatcher.InvokeRequired)
+        {
+            try
+            {
+                _uiDispatcher.BeginInvoke(new Action(() => OnAudioStateChanged(state, message)));
+            }
+            catch (InvalidOperationException) { /* The UI is shutting down. */ }
+            catch (ObjectDisposedException) { /* The UI is shutting down. */ }
+            return;
+        }
+
+        if (_isExiting) return;
         switch (state)
         {
             case AudioEngineState.Running:
@@ -172,6 +190,7 @@ public sealed class KeepAliveContext : ApplicationContext
         _audioService.Stop();
         _audioService.Dispose();
 
+        _audioService.StateChanged -= OnAudioStateChanged;
         _tray.Visible = false;
         _tray.Dispose();
 
@@ -185,7 +204,9 @@ public sealed class KeepAliveContext : ApplicationContext
     {
         if (disposing)
         {
+            _audioService.StateChanged -= OnAudioStateChanged;
             _audioService.Dispose();
+            _uiDispatcher.Dispose();
             _tray.Dispose();
             _mainForm?.Dispose();
         }
