@@ -79,24 +79,43 @@ public sealed class MainForm : Form
             BackColor = BgSidebar
         };
 
+        // Compact gadget-style brand mark using the same multi-resolution app icon.
+        var brandIcon = new PictureBox
+        {
+            Image = appIcon.ToBitmap(),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Size = new Size(38, 38),
+            Location = new Point(16, 18),
+            BackColor = BgSidebar
+        };
+
         var lblBrandName = new Label
         {
             Text = "HOCO KeepAlive",
             ForeColor = TextPrimary,
-            Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
-            Location = new Point(16, 16),
+            Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold),
+            Location = new Point(62, 15),
             AutoSize = true
         };
 
         var lblBrandSub = new Label
         {
-            Text = "Bluetooth Audio Utility • v1.0.0",
+            Text = "Bluetooth Audio Utility · v1.0.0",
             ForeColor = TextMuted,
-            Font = new Font("Segoe UI", 8F),
-            Location = new Point(17, 40),
+            Font = new Font("Segoe UI", 7.8F),
+            Location = new Point(63, 39),
             AutoSize = true
         };
 
+        var brandAccent = new Panel
+        {
+            BackColor = AccentLavender,
+            Size = new Size(3, 34),
+            Location = new Point(7, 20)
+        };
+
+        pnlBrand.Controls.Add(brandAccent);
+        pnlBrand.Controls.Add(brandIcon);
         pnlBrand.Controls.Add(lblBrandName);
         pnlBrand.Controls.Add(lblBrandSub);
         _sidebarPanel.Controls.Add(pnlBrand);
@@ -188,6 +207,8 @@ public sealed class MainForm : Form
             Padding = new Padding(28, 10, 28, 20),
             AutoScroll = true
         };
+        EnableDoubleBuffering(_contentContainer);
+        EnableDoubleBuffering(_sidebarPanel);
 
         pnlMainArea.Controls.Add(_contentContainer);
         pnlMainArea.Controls.Add(pnlTopHeader);
@@ -219,6 +240,14 @@ public sealed class MainForm : Form
         // Load default page
         NavigateTo("Overview");
         UpdateEngineDisplay();
+    }
+
+    private static void EnableDoubleBuffering(Control control)
+    {
+        // Reduce flicker when pages and status indicators refresh.
+        typeof(Control).GetProperty("DoubleBuffered",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?.SetValue(control, true);
     }
 
     private void AddNavButton(Panel container, string title, int index)
@@ -312,7 +341,7 @@ public sealed class MainForm : Form
 
         var lblSub = new Label
         {
-            Text = "Keep your Bluetooth audio session active during pauses and silence.",
+            Text = "Ready to keep audio active. Maintain your Bluetooth speaker connection through quiet moments.",
             Font = new Font("Segoe UI", 9.5F),
             ForeColor = TextMuted,
             AutoSize = true,
@@ -342,8 +371,8 @@ public sealed class MainForm : Form
 
         _lblStateTitle = new Label
         {
-            Text = "Ready when you are",
-            Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+            Text = "Ready to keep audio active",
+            Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
             ForeColor = TextPrimary,
             Location = new Point(22, 38),
             AutoSize = true
@@ -351,7 +380,7 @@ public sealed class MainForm : Form
 
         _lblStateDesc = new Label
         {
-            Text = "Start a silent audio stream to help keep your speaker's audio session active.",
+            Text = "Start a lightweight silent stream to help prevent your Bluetooth speaker from disconnecting during pauses.",
             Font = new Font("Segoe UI", 9F),
             ForeColor = TextSecondary,
             Location = new Point(24, 72),
@@ -1251,7 +1280,7 @@ public sealed class MainForm : Form
                     _btnOverviewToggle.BackColor = AccentLavender;
                     _btnOverviewToggle.ForeColor = BgMain;
                 }
-                if (_lblStateTitle != null) _lblStateTitle.Text = "Ready when you are";
+                if (_lblStateTitle != null) _lblStateTitle.Text = "Ready to keep audio active";
                 if (_lblStateDesc != null) _lblStateDesc.Text = "Start a silent audio stream to help keep your speaker's audio session active.";
                 break;
         }
