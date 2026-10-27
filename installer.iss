@@ -26,8 +26,8 @@ Name: "startup"; Description: "Start HOCO KeepAlive when I sign in to Windows"; 
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\assets\hoco-keepalive.ico"
-Name: "{autodesktop}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\assets\hoco-keepalive.ico"; Tasks: startup
+Name: "{group}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"
+Name: "{autodesktop}\HOCO KeepAlive"; Filename: "{app}\{#MyExeName}"; IconFilename: "{app}\{#MyExeName}"; Tasks: startup
 
 [Run]
 Filename: "{app}\{#MyExeName}"; Description: "Launch HOCO KeepAlive"; Flags: nowait postinstall skipifsilent
