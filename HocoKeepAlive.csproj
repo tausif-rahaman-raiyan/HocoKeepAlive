@@ -17,6 +17,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Test sources must be compiled only by the test project, not the application. -->
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="assets\hoco-keepalive.ico" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
