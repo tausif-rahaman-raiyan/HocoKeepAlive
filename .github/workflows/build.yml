@@ -1,4 +1,4 @@
-name: Build Windows app
+name: Build HOCO KeepAlive for Windows
 
 on:
   push:
@@ -9,39 +9,71 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: hoco-keepalive-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  build-windows:
+    name: Build EXE, installer, and ZIP
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
-      - name: Setup .NET
+
+      - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Generate application icon
+
+      - name: Generate app and tray icon
         shell: pwsh
-        run: ./scripts/Generate-Icon.ps1
-      - name: Restore
+        run: |
+          ./scripts/Generate-Icon.ps1
+          if (!(Test-Path "assets/hoco-keepalive.ico")) { throw "Icon generation failed." }
+
+      - name: Restore dependencies
         run: dotnet restore HocoKeepAlive.csproj
-      - name: Publish self-contained app
-        run: dotnet publish HocoKeepAlive.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
-      - name: Create ZIP package
+
+      - name: Publish self-contained Windows x64 EXE
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath HocoKeepAlive-Windows-x64.zip -Force
-      - name: Build installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
-        with:
-          path: installer.iss
-          options: /O+
-      - name: Upload build artifacts
+        run: |
+          dotnet publish HocoKeepAlive.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false --output publish
+          if (!(Test-Path "publish/HOCO KeepAlive.exe")) { throw "Published EXE was not found." }
+          if (!(Test-Path "publish/assets/hoco-keepalive.ico")) { throw "Published tray icon was not found." }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if (!(Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { throw "Inno Setup compiler was not installed." }
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer.iss"
+          if (!(Test-Path "installer-output/HOCO-KeepAlive-Setup-1.0.0.exe")) { throw "Installer EXE was not created." }
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "publish/*" -DestinationPath "HocoKeepAlive-Windows-x64.zip" -Force
+          if (!(Test-Path "HocoKeepAlive-Windows-x64.zip")) { throw "Portable ZIP was not created." }
+
+      - name: Upload Windows downloads
         uses: actions/upload-artifact@v4
         with:
           name: HocoKeepAlive-Windows
+          if-no-files-found: error
           path: |
+            publish/HOCO KeepAlive.exe
+            publish/assets/hoco-keepalive.ico
             HocoKeepAlive-Windows-x64.zip
             installer-output/HOCO-KeepAlive-Setup-1.0.0.exe
-          if-no-files-found: error
+          retention-days: 90
+
       - name: Publish GitHub release for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
