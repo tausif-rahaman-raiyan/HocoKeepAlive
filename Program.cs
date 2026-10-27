@@ -30,38 +30,52 @@ internal sealed class KeepAliveContext : ApplicationContext
         menu.Items.Add(new ToolStripMenuItem("HOCO KeepAlive 1.0.0") { Enabled = false });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(toggleItem);
+        menu.Items.Add(new ToolStripMenuItem("Battery-friendly guidance", null, (_, _) =>
+            MessageBox.Show("A continuous silent audio stream can keep Bluetooth active, but it may use more speaker battery than an idle connection. Stop keep-alive whenever you do not need it. No software can guarantee zero battery drain while maintaining an active Bluetooth audio link.",
+                "HOCO KeepAlive", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
-        tray = new NotifyIcon { Icon = LoadIcon(), Text = "HOCO KeepAlive — stopped", ContextMenuStrip = menu, Visible = true };
+        tray = new NotifyIcon
+        {
+            Icon = LoadIcon(),
+            Text = "HOCO KeepAlive — stopped",
+            ContextMenuStrip = menu,
+            Visible = true
+        };
         tray.DoubleClick += (_, _) => Toggle();
-        tray.ShowBalloonTip(2500, "HOCO KeepAlive", "Running quietly in the system tray. Right-click for options.", ToolTipIcon.Info);
+        tray.ShowBalloonTip(2500, "HOCO KeepAlive", "Running in the notification area. Right-click the icon for options.", ToolTipIcon.Info);
     }
 
     private static Icon LoadIcon()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "assets", "hoco-keepalive.ico");
         try { if (File.Exists(path)) return new Icon(path); } catch { }
-        return SystemIcons.Information;
+        return SystemIcons.Application;
     }
 
-    private void Toggle() { if (running) StopAudio(); else StartAudio(); }
+    private void Toggle()
+    {
+        if (running) StopAudio();
+        else StartAudio();
+    }
 
     private void StartAudio()
     {
         try
         {
             provider = new SilentWaveProvider();
-            output = new WaveOutEvent { DesiredLatency = 100, NumberOfBuffers = 2 };
+            output = new WaveOutEvent { DesiredLatency = 150, NumberOfBuffers = 3 };
             output.Init(provider);
             output.Play();
             running = true;
             toggleItem.Text = "Stop silent keep-alive";
             tray.Text = "HOCO KeepAlive — running silently";
-            tray.ShowBalloonTip(1500, "HOCO KeepAlive", "Silent audio stream started.", ToolTipIcon.Info);
+            tray.ShowBalloonTip(1500, "HOCO KeepAlive", "Silent stream started. Speaker battery use may increase while Bluetooth audio stays active.", ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
             StopAudio();
-            MessageBox.Show("Could not start the silent audio stream. Check that HOCO HC22 is connected and selected as the Windows output device.\n\n" + ex.Message,
+            MessageBox.Show("Could not start the silent audio stream. Select HOCO HC22 as the Windows playback output and try again.\n\n" + ex.Message,
                 "HOCO KeepAlive", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
@@ -69,7 +83,10 @@ internal sealed class KeepAliveContext : ApplicationContext
     private void StopAudio()
     {
         try { output?.Stop(); } catch { }
-        output?.Dispose(); output = null; provider = null; running = false;
+        output?.Dispose();
+        output = null;
+        provider = null;
+        running = false;
         toggleItem.Text = "Start silent keep-alive";
         tray.Text = "HOCO KeepAlive — stopped";
     }
@@ -77,19 +94,29 @@ internal sealed class KeepAliveContext : ApplicationContext
     private void Exit()
     {
         if (exiting) return;
-        exiting = true; StopAudio(); tray.Visible = false; tray.Dispose(); Application.Exit();
+        exiting = true;
+        StopAudio();
+        tray.Visible = false;
+        tray.Dispose();
+        Application.Exit();
     }
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { StopAudio(); tray.Dispose(); }
+        if (disposing)
+        {
+            StopAudio();
+            tray.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
 
 internal sealed class SilentWaveProvider : IWaveProvider
 {
+    // Small, steady callback workload; the Windows audio engine may resample this to the device format.
     public WaveFormat WaveFormat { get; } = new WaveFormat(48000, 16, 2);
+
     public int Read(byte[] buffer, int offset, int count)
     {
         Array.Clear(buffer, offset, count);
