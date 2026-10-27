@@ -27,7 +27,12 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 3. Generate and validate headphone icon
+      - name: 3. Set up Node.js for deterministic icon generation
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 4. Generate and validate headphone icon
         shell: pwsh
         run: |
           ./scripts/Generate-Icon.ps1
@@ -40,10 +45,10 @@ jobs:
           }
           Write-Host "Icon generated and validated: $($item.Length) bytes."
 
-      - name: 4. Restore dependencies
+      - name: 5. Restore dependencies
         run: dotnet restore HocoKeepAlive.csproj
 
-      - name: 5. Run automated tests
+      - name: 6. Run automated tests
         shell: pwsh
         run: |
           if (Test-Path "tests/HocoKeepAlive.Tests/HocoKeepAlive.Tests.csproj") {
@@ -52,7 +57,7 @@ jobs:
             Write-Host "Tests project not present, skipping test step."
           }
 
-      - name: 6. Publish self-contained Windows x64 EXE
+      - name: 7. Publish self-contained Windows x64 EXE
         shell: pwsh
         run: |
           dotnet publish HocoKeepAlive.csproj `
@@ -75,7 +80,7 @@ jobs:
           }
           Write-Host "Published self-contained executable validated: $($exeItem.Length) bytes."
 
-      - name: 7. Install Inno Setup
+      - name: 8. Install Inno Setup
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
@@ -85,7 +90,7 @@ jobs:
           }
           Write-Host "Inno Setup found at $compilerPath"
 
-      - name: 8. Build Windows installer
+      - name: 9. Build Windows installer
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
@@ -101,7 +106,7 @@ jobs:
           }
           Write-Host "Windows setup installer validated: $($setupItem.Length) bytes."
 
-      - name: 9. Create portable ZIP
+      - name: 10. Create portable ZIP
         shell: pwsh
         run: |
           $zipPath = "HocoKeepAlive-Windows-x64.zip"
@@ -115,7 +120,7 @@ jobs:
           }
           Write-Host "Portable ZIP created and validated: $($zipItem.Length) bytes."
 
-      - name: 10. Upload Windows deliverables
+      - name: 11. Upload Windows deliverables
         uses: actions/upload-artifact@v4
         with:
           name: HocoKeepAlive-Windows
@@ -126,7 +131,7 @@ jobs:
             HocoKeepAlive-Windows-x64.zip
           retention-days: 90
 
-      - name: 11. Publish GitHub release for version tags
+      - name: 12. Publish GitHub release for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
