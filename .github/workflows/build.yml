@@ -41,7 +41,6 @@ jobs:
         run: |
           dotnet publish HocoKeepAlive.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false --output publish
           if (!(Test-Path "publish/HOCO KeepAlive.exe")) { throw "Published EXE was not found." }
-          if (!(Test-Path "publish/assets/hoco-keepalive.ico")) { throw "Published tray icon was not found." }
 
       - name: Install Inno Setup
         shell: pwsh
@@ -69,7 +68,6 @@ jobs:
           if-no-files-found: error
           path: |
             publish/HOCO KeepAlive.exe
-            publish/assets/hoco-keepalive.ico
             HocoKeepAlive-Windows-x64.zip
             installer-output/HOCO-KeepAlive-Setup-1.0.0.exe
           retention-days: 90
