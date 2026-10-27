@@ -1,26 +1,41 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
+
+# Generate a clean headphone-style app icon at build time.
+# The supplied reference uses a black background, pale earbuds and bold black details.
 $assetDir = Join-Path $PSScriptRoot '..\assets'
 New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
 $iconPath = Join-Path $assetDir 'hoco-keepalive.ico'
-$bmp = New-Object System.Drawing.Bitmap 64, 64
+$bmp = New-Object System.Drawing.Bitmap 256, 256
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$g.Clear([System.Drawing.Color]::Transparent)
-$bg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 18, 28, 48))
-$g.FillEllipse($bg, 2, 2, 60, 60)
-$pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 64, 210, 255)), 4
+$g.Clear([System.Drawing.Color]::Black)
+
+$earbudFill = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(245, 247, 255))
+$earbudShade = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(218, 225, 248))
+$black = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::Black)
+
+# Two rounded earbuds inspired by the provided reference image.
+$g.FillEllipse($earbudFill, 20, 16, 126, 126)
+$g.FillEllipse($earbudShade, 36, 24, 96, 112)
+$g.FillEllipse($earbudFill, 112, 104, 126, 126)
+$g.FillEllipse($earbudShade, 128, 112, 96, 112)
+
+# Rounded stems
+$g.FillRoundedRectangle($earbudFill, 56, 126, 31, 64, 15)
+$g.FillRoundedRectangle($earbudFill, 170, 214, 31, 30, 15)
+
+# Face marks and smiles
+$g.FillEllipse($black, 40, 65, 13, 27)
+$g.FillEllipse($black, 111, 65, 13, 27)
+$g.FillEllipse($black, 141, 151, 13, 27)
+$g.FillEllipse($black, 210, 151, 13, 27)
+$pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::Black), 12
 $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
 $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-# Stylized Bluetooth rune
-$g.DrawLine($pen, 32, 12, 32, 52)
-$g.DrawLine($pen, 32, 12, 45, 24)
-$g.DrawLine($pen, 45, 24, 20, 44)
-$g.DrawLine($pen, 32, 52, 45, 40)
-$g.DrawLine($pen, 45, 40, 20, 20)
-$g.Dispose()
-$bg.Dispose()
-$pen.Dispose()
+$g.DrawArc($pen, 59, 69, 57, 38, 15, 150)
+$g.DrawArc($pen, 157, 150, 57, 38, 15, 150)
+
 $hIcon = $bmp.GetHicon()
 $icon = [System.Drawing.Icon]::FromHandle($hIcon)
 $file = [System.IO.File]::Create($iconPath)
@@ -28,4 +43,10 @@ $icon.Save($file)
 $file.Dispose()
 $icon.Dispose()
 $bmp.Dispose()
+$g.Dispose()
+$earbudFill.Dispose()
+$earbudShade.Dispose()
+$black.Dispose()
+$pen.Dispose()
+if (!(Test-Path $iconPath)) { throw 'Icon generation failed.' }
 Write-Host "Generated $iconPath"
