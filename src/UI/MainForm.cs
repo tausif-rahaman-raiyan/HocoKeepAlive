@@ -32,7 +32,7 @@ public sealed class MainForm : Form
     private readonly Label _lblTopStatusPill;
     private readonly System.Windows.Forms.Timer _statsTimer;
 
-    // Navigation Buttons
+    // Navigation Buttons (5 clean pages)
     private readonly List<Button> _navButtons = new();
     private string _activePage = "Overview";
 
@@ -52,8 +52,8 @@ public sealed class MainForm : Form
 
         Icon = appIcon;
         Text = "HOCO KeepAlive";
-        ClientSize = new Size(1120, 760);
-        MinimumSize = new Size(1000, 650);
+        ClientSize = new Size(1100, 720);
+        MinimumSize = new Size(880, 580);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = BgMain;
         ForeColor = TextPrimary;
@@ -79,7 +79,6 @@ public sealed class MainForm : Form
             BackColor = BgSidebar
         };
 
-        // Compact gadget-style brand mark using the same multi-resolution app icon.
         var brandIcon = new PictureBox
         {
             Image = appIcon.ToBitmap(),
@@ -125,16 +124,15 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = BgSidebar,
-            Padding = new Padding(12, 10, 12, 10)
+            Padding = new Padding(12, 10, 12, 10),
+            AutoScroll = false
         };
 
         AddNavButton(pnlNav, "Overview", 0);
         AddNavButton(pnlNav, "Audio Device", 1);
         AddNavButton(pnlNav, "Keep-Alive Engine", 2);
         AddNavButton(pnlNav, "Settings", 3);
-        AddNavButton(pnlNav, "Troubleshooting", 4);
-        AddNavButton(pnlNav, "Diagnostics & Logs", 5);
-        AddNavButton(pnlNav, "About & Updates", 6);
+        AddNavButton(pnlNav, "About & Updates", 4);
 
         _sidebarPanel.Controls.Add(pnlNav);
 
@@ -142,18 +140,18 @@ public sealed class MainForm : Form
         var pnlSidebarFooter = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 56,
+            Height = 64,
             BackColor = BgSidebar,
             Padding = new Padding(16, 8, 16, 8)
         };
 
-        var lblStatusIndicator = new Label
+        var lblAutoConnectStatus = new Label
         {
-            Text = "● Ready",
-            ForeColor = TextMuted,
-            Font = new Font("Segoe UI", 8F),
+            Text = "● Auto-Reconnect: Active",
+            ForeColor = ColorSuccess,
+            Font = new Font("Segoe UI", 7.8F, FontStyle.Bold),
             Dock = DockStyle.Top,
-            Height = 20
+            Height = 18
         };
 
         var lnkGithub = new LinkLabel
@@ -167,10 +165,10 @@ public sealed class MainForm : Form
         };
         lnkGithub.LinkClicked += (_, _) => OpenUrl("https://github.com/tausif-rahaman-raiyan/HocoKeepAlive");
 
-        pnlSidebarFooter.Controls.Add(lblStatusIndicator);
+        pnlSidebarFooter.Controls.Add(lblAutoConnectStatus);
         pnlSidebarFooter.Controls.Add(lnkGithub);
         _sidebarPanel.Controls.Add(pnlSidebarFooter);
-        // Keep the fill-docked navigation behind the fixed header and footer.
+
         pnlNav.SendToBack();
         pnlBrand.BringToFront();
         pnlSidebarFooter.BringToFront();
@@ -188,7 +186,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Top,
             Height = 56,
             BackColor = BgMain,
-            Padding = new Padding(24, 12, 24, 12)
+            Padding = new Padding(28, 14, 28, 14)
         };
 
         _lblTopStatusPill = new Label
@@ -198,12 +196,12 @@ public sealed class MainForm : Form
             ForeColor = TextMuted,
             BackColor = SurfaceSecondary,
             TextAlign = ContentAlignment.MiddleCenter,
-            Size = new Size(110, 28),
-            Dock = DockStyle.Right,
-            Margin = new Padding(0, 0, 0, 0)
+            Size = new Size(130, 28),
+            Dock = DockStyle.Right
         };
         pnlTopHeader.Controls.Add(_lblTopStatusPill);
 
+        // Outer Content Container: ONLY scrollable container, scrollbar always at the right edge
         _contentContainer = new Panel
         {
             Dock = DockStyle.Fill,
@@ -213,6 +211,15 @@ public sealed class MainForm : Form
         };
         EnableDoubleBuffering(_contentContainer);
         EnableDoubleBuffering(_sidebarPanel);
+
+        // Adjust card widths on window resize / maximize to prevent scrollbar in the middle
+        _contentContainer.Resize += (_, _) =>
+        {
+            if (!IsDisposed && !Disposing)
+            {
+                RenderCurrentPage();
+            }
+        };
 
         pnlMainArea.Controls.Add(_contentContainer);
         pnlMainArea.Controls.Add(pnlTopHeader);
@@ -228,7 +235,7 @@ public sealed class MainForm : Form
             if (InvokeRequired)
             {
                 try { BeginInvoke(new Action(UpdateEngineDisplay)); }
-                catch (InvalidOperationException) { /* The form is closing. */ }
+                catch (InvalidOperationException) { }
             }
             else
             {
@@ -257,10 +264,17 @@ public sealed class MainForm : Form
 
     private static void EnableDoubleBuffering(Control control)
     {
-        // Reduce flicker when pages and status indicators refresh.
         typeof(Control).GetProperty("DoubleBuffered",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             ?.SetValue(control, true);
+    }
+
+    private int GetResponsiveContentWidth()
+    {
+        // Fit width cleanly inside the container padding without horizontal scrolling
+        int available = _contentContainer.ClientSize.Width - 56;
+        if (available < 600) available = 600;
+        return available;
     }
 
     private void AddNavButton(Panel container, string title, int index)
@@ -290,7 +304,6 @@ public sealed class MainForm : Form
     {
         _activePage = pageTitle;
 
-        // Update nav buttons styling
         foreach (var b in _navButtons)
         {
             bool isActive = (string)b.Tag == pageTitle;
@@ -299,9 +312,16 @@ public sealed class MainForm : Form
             b.Font = new Font("Segoe UI", 9F, isActive ? FontStyle.Bold : FontStyle.Regular);
         }
 
+        RenderCurrentPage();
+        UpdateEngineDisplay();
+    }
+
+    private void RenderCurrentPage()
+    {
+        _contentContainer.SuspendLayout();
         _contentContainer.Controls.Clear();
 
-        switch (pageTitle)
+        switch (_activePage)
         {
             case "Overview":
                 RenderOverviewPage();
@@ -315,18 +335,15 @@ public sealed class MainForm : Form
             case "Settings":
                 RenderSettingsPage();
                 break;
-            case "Troubleshooting":
-                RenderTroubleshootingPage();
-                break;
-            case "Diagnostics & Logs":
-                RenderDiagnosticsPage();
-                break;
             case "About & Updates":
                 RenderAboutPage();
                 break;
+            default:
+                RenderOverviewPage();
+                break;
         }
 
-        UpdateEngineDisplay();
+        _contentContainer.ResumeLayout(true);
     }
 
     // ==========================================
@@ -334,13 +351,19 @@ public sealed class MainForm : Form
     // ==========================================
     private void RenderOverviewPage()
     {
-        var pnl = new FlowLayoutPanel
+        int contentWidth = GetResponsiveContentWidth();
+
+        // Single panel: AutoScroll is FALSE here, so no middle scrollbars ever appear!
+        var pnl = new Panel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
+            Width = contentWidth,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            AutoScroll = false,
+            Location = new Point(0, 0)
         };
+
+        int curY = 0;
 
         // Title
         var lblTitle = new Label
@@ -348,29 +371,30 @@ public sealed class MainForm : Form
             Text = "Overview",
             Font = new Font("Segoe UI", 18F, FontStyle.Bold),
             ForeColor = TextPrimary,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 2)
+            Location = new Point(0, curY),
+            AutoSize = true
         };
+        pnl.Controls.Add(lblTitle);
+        curY += 34;
 
         var lblSub = new Label
         {
-            Text = "Ready to keep audio active. Maintain your Bluetooth speaker connection through quiet moments.",
+            Text = "Ready to keep audio active. Maintains your Bluetooth speaker connection through quiet moments.",
             Font = new Font("Segoe UI", 9.5F),
             ForeColor = TextMuted,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 20)
+            Location = new Point(0, curY),
+            AutoSize = true
         };
-
-        pnl.Controls.Add(lblTitle);
         pnl.Controls.Add(lblSub);
+        curY += 30;
 
         // --- Main Keep-Alive Card ---
         var cardKeepAlive = new Panel
         {
-            Size = new Size(710, 160),
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 160),
             BackColor = SurfacePrimary,
-            Padding = new Padding(24),
-            Margin = new Padding(0, 0, 0, 18)
+            Padding = new Padding(24)
         };
 
         var lblStatusTag = new Label
@@ -397,14 +421,15 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI", 9F),
             ForeColor = TextSecondary,
             Location = new Point(24, 72),
-            Size = new Size(460, 36)
+            Size = new Size(Math.Max(300, contentWidth - 260), 38)
         };
 
         _btnOverviewToggle = new Button
         {
             Text = "Start Keep-Alive",
-            Size = new Size(170, 44),
-            Location = new Point(510, 58),
+            Size = new Size(180, 46),
+            Location = new Point(contentWidth - 210, 56),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 10F, FontStyle.Bold),
             ForeColor = BgMain,
@@ -419,18 +444,69 @@ public sealed class MainForm : Form
         cardKeepAlive.Controls.Add(_lblStateDesc);
         cardKeepAlive.Controls.Add(_btnOverviewToggle);
         pnl.Controls.Add(cardKeepAlive);
+        curY += 176;
+
+        // --- Auto-Connect & Auto-Pair Banner ---
+        var pnlAutoConnect = new Panel
+        {
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 68),
+            BackColor = SurfaceSecondary,
+            Padding = new Padding(20, 14, 20, 14)
+        };
+
+        var lblAutoTitle = new Label
+        {
+            Text = "Auto-Reconnect & Auto-Pair: Active",
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            ForeColor = ColorSuccess,
+            Location = new Point(18, 14),
+            AutoSize = true
+        };
+
+        var lblAutoDesc = new Label
+        {
+            Text = "Automatically reconnects silent stream when HOCO HC22 reconnects or wakes up from standby.",
+            Font = new Font("Segoe UI", 8.5F),
+            ForeColor = TextSecondary,
+            Location = new Point(18, 36),
+            AutoSize = true
+        };
+
+        var btnPairAssistant = new Button
+        {
+            Text = "Pair / Connect Speaker",
+            Location = new Point(contentWidth - 190, 18),
+            Size = new Size(170, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = SurfaceHover,
+            ForeColor = AccentLavender,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnPairAssistant.FlatAppearance.BorderSize = 0;
+        btnPairAssistant.Click += (_, _) => _audioService.LaunchAutoPairAssistant();
+
+        pnlAutoConnect.Controls.Add(lblAutoTitle);
+        pnlAutoConnect.Controls.Add(lblAutoDesc);
+        pnlAutoConnect.Controls.Add(btnPairAssistant);
+        pnl.Controls.Add(pnlAutoConnect);
+        curY += 84;
 
         // --- Two Column Row (Audio Device + Session Summary) ---
+        int halfWidth = (contentWidth - 16) / 2;
+
         var rowPanel = new Panel
         {
-            Size = new Size(710, 160),
-            Margin = new Padding(0, 0, 0, 18)
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 160)
         };
 
         // Device Summary Card (Left)
         var cardDevice = new Panel
         {
-            Size = new Size(346, 160),
+            Size = new Size(halfWidth, 160),
             Location = new Point(0, 0),
             BackColor = SurfacePrimary,
             Padding = new Padding(20)
@@ -451,12 +527,12 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI", 11F, FontStyle.Bold),
             ForeColor = TextPrimary,
             Location = new Point(18, 40),
-            Size = new Size(308, 44)
+            Size = new Size(halfWidth - 36, 44)
         };
 
         _lblOverviewDeviceBadge = new Label
         {
-            Text = "● Available",
+            Text = "● Ready & Monitored",
             Font = new Font("Segoe UI", 8F),
             ForeColor = ColorSuccess,
             Location = new Point(20, 88),
@@ -471,7 +547,7 @@ public sealed class MainForm : Form
             FlatStyle = FlatStyle.Flat,
             ForeColor = AccentLavender,
             BackColor = SurfaceSecondary,
-            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+            Font = new Font("Segoe UI", 8.5F),
             Cursor = Cursors.Hand
         };
         btnManageDev.FlatAppearance.BorderSize = 0;
@@ -486,8 +562,8 @@ public sealed class MainForm : Form
         // Session Summary Card (Right)
         var cardSession = new Panel
         {
-            Size = new Size(346, 160),
-            Location = new Point(364, 0),
+            Size = new Size(halfWidth, 160),
+            Location = new Point(halfWidth + 16, 0),
             BackColor = SurfacePrimary,
             Padding = new Padding(20)
         };
@@ -512,11 +588,11 @@ public sealed class MainForm : Form
 
         var lblEngineSpecs = new Label
         {
-            Text = "Format: 48,000 Hz • 16-bit stereo PCM\nCPU: Low-overhead NAudio callback",
+            Text = "Format: 48,000 Hz • 16-bit stereo PCM\nEngine: Low-overhead NAudio callback",
             Font = new Font("Segoe UI", 8.5F),
             ForeColor = TextSecondary,
             Location = new Point(20, 78),
-            Size = new Size(308, 34)
+            Size = new Size(halfWidth - 36, 34)
         };
 
         var btnEngineDetails = new Button
@@ -527,7 +603,7 @@ public sealed class MainForm : Form
             FlatStyle = FlatStyle.Flat,
             ForeColor = AccentLavender,
             BackColor = SurfaceSecondary,
-            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+            Font = new Font("Segoe UI", 8.5F),
             Cursor = Cursors.Hand
         };
         btnEngineDetails.FlatAppearance.BorderSize = 0;
@@ -541,51 +617,6 @@ public sealed class MainForm : Form
 
         pnl.Controls.Add(rowPanel);
 
-        // --- Battery & Guidance Card ---
-        var cardGuidance = new Panel
-        {
-            Size = new Size(710, 88),
-            BackColor = SurfaceSecondary,
-            Padding = new Padding(20, 16, 20, 16)
-        };
-
-        var lblGuidanceTitle = new Label
-        {
-            Text = "Notice regarding Bluetooth speaker battery",
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-            ForeColor = ColorWarning,
-            Location = new Point(18, 14),
-            AutoSize = true
-        };
-
-        var lblGuidanceText = new Label
-        {
-            Text = "Silent audio keeps the Bluetooth radio awake. Stop keep-alive when not in use for optimal battery endurance.",
-            Font = new Font("Segoe UI", 8.5F),
-            ForeColor = TextSecondary,
-            Location = new Point(18, 34),
-            Size = new Size(540, 36)
-        };
-
-        var btnTroubleshoot = new Button
-        {
-            Text = "Troubleshooting",
-            Location = new Point(570, 24),
-            Size = new Size(120, 32),
-            FlatStyle = FlatStyle.Flat,
-            ForeColor = TextPrimary,
-            BackColor = SurfaceHover,
-            Font = new Font("Segoe UI", 8.5F),
-            Cursor = Cursors.Hand
-        };
-        btnTroubleshoot.FlatAppearance.BorderSize = 0;
-        btnTroubleshoot.Click += (_, _) => NavigateTo("Troubleshooting");
-
-        cardGuidance.Controls.Add(lblGuidanceTitle);
-        cardGuidance.Controls.Add(lblGuidanceText);
-        cardGuidance.Controls.Add(btnTroubleshoot);
-        pnl.Controls.Add(cardGuidance);
-
         _contentContainer.Controls.Add(pnl);
     }
 
@@ -594,40 +625,47 @@ public sealed class MainForm : Form
     // ==========================================
     private void RenderAudioDevicePage()
     {
-        var pnl = new FlowLayoutPanel
+        int contentWidth = GetResponsiveContentWidth();
+
+        var pnl = new Panel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
+            Width = contentWidth,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            AutoScroll = false,
+            Location = new Point(0, 0)
         };
+
+        int curY = 0;
 
         var lblTitle = new Label
         {
             Text = "Audio Playback Device",
             Font = new Font("Segoe UI", 18F, FontStyle.Bold),
             ForeColor = TextPrimary,
+            Location = new Point(0, curY),
             AutoSize = true
         };
+        pnl.Controls.Add(lblTitle);
+        curY += 34;
 
         var lblSub = new Label
         {
             Text = "Select your HOCO HC22 or target Windows audio endpoint for the silent keep-alive stream.",
             Font = new Font("Segoe UI", 9.5F),
             ForeColor = TextMuted,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 16)
+            Location = new Point(0, curY),
+            AutoSize = true
         };
-
-        pnl.Controls.Add(lblTitle);
         pnl.Controls.Add(lblSub);
+        curY += 28;
 
-        // Action Toolbar
-        var pnlBar = new Panel { Size = new Size(710, 40), Margin = new Padding(0, 0, 0, 14) };
+        // Toolbar
+        var pnlBar = new Panel { Location = new Point(0, curY), Size = new Size(contentWidth, 40) };
         var btnRefresh = new Button
         {
             Text = "Refresh Device List",
-            Size = new Size(140, 32),
+            Size = new Size(150, 32),
             Location = new Point(0, 4),
             FlatStyle = FlatStyle.Flat,
             BackColor = SurfaceSecondary,
@@ -637,15 +675,28 @@ public sealed class MainForm : Form
         btnRefresh.FlatAppearance.BorderSize = 0;
         btnRefresh.Click += (_, _) =>
         {
-            LogService.Log(LogSeverity.Info, "AudioDevice", "Manually refreshed audio devices list.");
-            RenderAudioDevicePage();
+            LogService.Log(LogSeverity.Info, "AudioDevice", "Refreshed audio devices list.");
+            RenderCurrentPage();
         };
+
+        var btnPair = new Button
+        {
+            Text = "Open Bluetooth Pairing",
+            Size = new Size(170, 32),
+            Location = new Point(160, 4),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = SurfaceSecondary,
+            ForeColor = ColorInfo,
+            Cursor = Cursors.Hand
+        };
+        btnPair.FlatAppearance.BorderSize = 0;
+        btnPair.Click += (_, _) => _audioService.LaunchAutoPairAssistant();
 
         var btnSoundSettings = new Button
         {
-            Text = "Open Windows Sound Settings",
-            Size = new Size(200, 32),
-            Location = new Point(150, 4),
+            Text = "Windows Sound Settings",
+            Size = new Size(170, 32),
+            Location = new Point(340, 4),
             FlatStyle = FlatStyle.Flat,
             BackColor = SurfaceSecondary,
             ForeColor = TextSecondary,
@@ -655,17 +706,19 @@ public sealed class MainForm : Form
         btnSoundSettings.Click += (_, _) => OpenWindowsSoundSettings();
 
         pnlBar.Controls.Add(btnRefresh);
+        pnlBar.Controls.Add(btnPair);
         pnlBar.Controls.Add(btnSoundSettings);
         pnl.Controls.Add(pnlBar);
+        curY += 48;
 
         // Device List Items
         var devices = AudioDeviceService.GetPlaybackDevices();
         if (devices.Count == 0)
         {
-            var pnlEmpty = new Panel { Size = new Size(710, 160), BackColor = SurfacePrimary, Padding = new Padding(24) };
+            var pnlEmpty = new Panel { Location = new Point(0, curY), Size = new Size(contentWidth, 140), BackColor = SurfacePrimary, Padding = new Padding(24) };
             var lblEmpty = new Label
             {
-                Text = "No Windows playback devices detected.\nCheck your Bluetooth connection and click 'Refresh Device List'.",
+                Text = "No Windows playback devices detected.\nTurn on HOCO HC22 Bluetooth and click 'Refresh Device List'.",
                 ForeColor = TextSecondary,
                 Font = new Font("Segoe UI", 10F),
                 Dock = DockStyle.Fill,
@@ -681,9 +734,9 @@ public sealed class MainForm : Form
                 bool isSelected = dev.DeviceNumber == _audioService.TargetDeviceNumber;
                 var itemCard = new Panel
                 {
-                    Size = new Size(710, 68),
+                    Location = new Point(0, curY),
+                    Size = new Size(contentWidth, 68),
                     BackColor = isSelected ? SurfaceSecondary : SurfacePrimary,
-                    Margin = new Padding(0, 0, 0, 10),
                     Padding = new Padding(18, 12, 18, 12)
                 };
 
@@ -693,7 +746,7 @@ public sealed class MainForm : Form
                     Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                     ForeColor = TextPrimary,
                     Location = new Point(18, 12),
-                    Size = new Size(480, 22)
+                    Size = new Size(Math.Max(300, contentWidth - 180), 22)
                 };
 
                 var lblDevMeta = new Label
@@ -708,8 +761,9 @@ public sealed class MainForm : Form
                 var btnSelect = new Button
                 {
                     Text = isSelected ? "Active Target" : "Select Device",
-                    Size = new Size(110, 32),
-                    Location = new Point(580, 18),
+                    Size = new Size(120, 32),
+                    Location = new Point(contentWidth - 140, 18),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
                     FlatStyle = FlatStyle.Flat,
                     BackColor = isSelected ? AccentLavender : SurfaceHover,
                     ForeColor = isSelected ? BgMain : TextSecondary,
@@ -724,17 +778,17 @@ public sealed class MainForm : Form
                     _settings.PreferredDeviceNumber = dev.DeviceNumber;
                     _settings.PreferredDeviceName = dev.Name;
                     _settings.Save();
-                    RenderAudioDevicePage();
+                    RenderCurrentPage();
                 };
 
                 itemCard.Controls.Add(lblDevName);
                 itemCard.Controls.Add(lblDevMeta);
                 itemCard.Controls.Add(btnSelect);
                 pnl.Controls.Add(itemCard);
+                curY += 76;
             }
         }
 
-        _contentContainer.Controls.Clear();
         _contentContainer.Controls.Add(pnl);
     }
 
@@ -743,63 +797,71 @@ public sealed class MainForm : Form
     // ==========================================
     private void RenderEnginePage()
     {
-        var pnl = new FlowLayoutPanel
+        int contentWidth = GetResponsiveContentWidth();
+
+        var pnl = new Panel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
+            Width = contentWidth,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            AutoScroll = false,
+            Location = new Point(0, 0)
         };
+
+        int curY = 0;
 
         var lblTitle = new Label
         {
             Text = "Keep-Alive Engine",
             Font = new Font("Segoe UI", 18F, FontStyle.Bold),
             ForeColor = TextPrimary,
+            Location = new Point(0, curY),
             AutoSize = true
         };
+        pnl.Controls.Add(lblTitle);
+        curY += 34;
 
         var lblSub = new Label
         {
             Text = "Audio pipeline specifications, latency tuning, and stream telemetry.",
             Font = new Font("Segoe UI", 9.5F),
             ForeColor = TextMuted,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 16)
+            Location = new Point(0, curY),
+            AutoSize = true
         };
-
-        pnl.Controls.Add(lblTitle);
         pnl.Controls.Add(lblSub);
+        curY += 28;
 
         // Telemetry Grid
-        var pnlGrid = new Panel { Size = new Size(710, 100), Margin = new Padding(0, 0, 0, 18) };
-        AddMetricBox(pnlGrid, 0, "SAMPLE RATE", $"{_settings.SampleRate} Hz");
-        AddMetricBox(pnlGrid, 180, "CHANNELS", $"{_settings.Channels} (Stereo)");
-        AddMetricBox(pnlGrid, 360, "BUFFER LATENCY", $"{_settings.LatencyMilliseconds} ms");
-        AddMetricBox(pnlGrid, 540, "AMPLITUDE", "0.000 (-∞ dB)");
+        var pnlGrid = new Panel { Location = new Point(0, curY), Size = new Size(contentWidth, 95) };
+        int boxWidth = (contentWidth - 36) / 4;
+        AddMetricBox(pnlGrid, 0, boxWidth, "SAMPLE RATE", $"{_settings.SampleRate} Hz");
+        AddMetricBox(pnlGrid, boxWidth + 12, boxWidth, "CHANNELS", $"{_settings.Channels} (Stereo)");
+        AddMetricBox(pnlGrid, (boxWidth + 12) * 2, boxWidth, "BUFFER LATENCY", $"{_settings.LatencyMilliseconds} ms");
+        AddMetricBox(pnlGrid, (boxWidth + 12) * 3, boxWidth, "AMPLITUDE", "0.000 (-∞ dB)");
         pnl.Controls.Add(pnlGrid);
+        curY += 110;
 
-        // Advanced Configuration
+        // Advanced Configuration Card
         var pnlConfig = new Panel
         {
-            Size = new Size(710, 240),
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 230),
             BackColor = SurfacePrimary,
-            Padding = new Padding(24),
-            Margin = new Padding(0, 0, 0, 18)
+            Padding = new Padding(24)
         };
 
         var lblCfgTitle = new Label
         {
-            Text = "Advanced Pipeline Tuning",
+            Text = "Pipeline Tuning & Auto-Reconnection",
             Font = new Font("Segoe UI", 11F, FontStyle.Bold),
             ForeColor = TextPrimary,
             Location = new Point(20, 16),
             AutoSize = true
         };
 
-        // Sample rate selector
-        var lblSr = new Label { Text = "Audio Sample Rate:", Location = new Point(20, 54), AutoSize = true, ForeColor = TextSecondary };
-        var cboSr = new ComboBox { Location = new Point(20, 76), Size = new Size(200, 26), DropDownStyle = ComboBoxStyle.DropDownList };
+        var lblSr = new Label { Text = "Audio Sample Rate:", Location = new Point(20, 52), AutoSize = true, ForeColor = TextSecondary };
+        var cboSr = new ComboBox { Location = new Point(20, 74), Size = new Size(220, 26), DropDownStyle = ComboBoxStyle.DropDownList };
         cboSr.Items.AddRange(new object[] { "48000 Hz (Standard DVD/BT)", "44100 Hz (CD Audio)" });
         cboSr.SelectedIndex = _settings.SampleRate == 44100 ? 1 : 0;
         cboSr.SelectedIndexChanged += (_, _) =>
@@ -809,9 +871,8 @@ public sealed class MainForm : Form
             _settings.Save();
         };
 
-        // Buffer latency selector
-        var lblLat = new Label { Text = "Buffer Latency:", Location = new Point(250, 54), AutoSize = true, ForeColor = TextSecondary };
-        var cboLat = new ComboBox { Location = new Point(250, 76), Size = new Size(200, 26), DropDownStyle = ComboBoxStyle.DropDownList };
+        var lblLat = new Label { Text = "Buffer Latency:", Location = new Point(260, 52), AutoSize = true, ForeColor = TextSecondary };
+        var cboLat = new ComboBox { Location = new Point(260, 74), Size = new Size(220, 26), DropDownStyle = ComboBoxStyle.DropDownList };
         cboLat.Items.AddRange(new object[] { "100 ms (Low Latency)", "150 ms (Balanced - Recommended)", "250 ms (High Stability)" });
         cboLat.SelectedIndex = _settings.LatencyMilliseconds switch { 100 => 0, 250 => 2, _ => 1 };
         cboLat.SelectedIndexChanged += (_, _) =>
@@ -821,26 +882,27 @@ public sealed class MainForm : Form
             _settings.Save();
         };
 
-        // Reconnect behavior
         var chkReconnect = new CheckBox
         {
-            Text = "Automatically attempt stream reconnection when playback endpoint re-appears",
-            Location = new Point(20, 130),
+            Text = "Auto-reconnect automatically when speaker disconnects or reconnects",
+            Location = new Point(20, 124),
             AutoSize = true,
             Checked = _settings.AutoReconnectOnDeviceAvailable,
-            ForeColor = TextSecondary
+            ForeColor = ColorSuccess,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
         };
         chkReconnect.CheckedChanged += (_, _) =>
         {
             _settings.AutoReconnectOnDeviceAvailable = chkReconnect.Checked;
+            _audioService.AutoReconnect = chkReconnect.Checked;
             _settings.Save();
         };
 
         var btnTestChime = new Button
         {
             Text = "Play 0.5s Hardware Verification Chime",
-            Size = new Size(260, 34),
-            Location = new Point(20, 175),
+            Size = new Size(270, 34),
+            Location = new Point(20, 168),
             FlatStyle = FlatStyle.Flat,
             BackColor = SurfaceSecondary,
             ForeColor = AccentLavender,
@@ -858,16 +920,15 @@ public sealed class MainForm : Form
         pnlConfig.Controls.Add(btnTestChime);
         pnl.Controls.Add(pnlConfig);
 
-        _contentContainer.Controls.Clear();
         _contentContainer.Controls.Add(pnl);
     }
 
-    private void AddMetricBox(Panel parent, int x, string label, string value)
+    private void AddMetricBox(Panel parent, int x, int width, string label, string value)
     {
         var box = new Panel
         {
             Location = new Point(x, 0),
-            Size = new Size(160, 90),
+            Size = new Size(width, 90),
             BackColor = SurfacePrimary,
             Padding = new Padding(16)
         };
@@ -900,41 +961,48 @@ public sealed class MainForm : Form
     // ==========================================
     private void RenderSettingsPage()
     {
-        var pnl = new FlowLayoutPanel
+        int contentWidth = GetResponsiveContentWidth();
+
+        var pnl = new Panel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
+            Width = contentWidth,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            AutoScroll = false,
+            Location = new Point(0, 0)
         };
+
+        int curY = 0;
 
         var lblTitle = new Label
         {
             Text = "Settings",
             Font = new Font("Segoe UI", 18F, FontStyle.Bold),
             ForeColor = TextPrimary,
+            Location = new Point(0, curY),
             AutoSize = true
         };
+        pnl.Controls.Add(lblTitle);
+        curY += 34;
 
         var lblSub = new Label
         {
-            Text = "Configure startup, background tray behavior, and notifications.",
+            Text = "Configure startup, background tray behavior, and auto-pairing preferences.",
             Font = new Font("Segoe UI", 9.5F),
             ForeColor = TextMuted,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 16)
+            Location = new Point(0, curY),
+            AutoSize = true
         };
-
-        pnl.Controls.Add(lblTitle);
         pnl.Controls.Add(lblSub);
+        curY += 28;
 
         // General Group Card
         var pnlGeneral = new Panel
         {
-            Size = new Size(710, 160),
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 195),
             BackColor = SurfacePrimary,
-            Padding = new Padding(24),
-            Margin = new Padding(0, 0, 0, 16)
+            Padding = new Padding(24)
         };
 
         var lblGenHeader = new Label { Text = "General & Windows Startup", Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = TextPrimary, Location = new Point(20, 14), AutoSize = true };
@@ -942,7 +1010,7 @@ public sealed class MainForm : Form
         var chkStartup = new CheckBox
         {
             Text = "Start HOCO KeepAlive when I sign in to Windows (registers HKCU Run key)",
-            Location = new Point(20, 50),
+            Location = new Point(20, 48),
             AutoSize = true,
             Checked = _settings.StartOnWindowsStartup,
             ForeColor = TextSecondary
@@ -955,8 +1023,8 @@ public sealed class MainForm : Form
 
         var chkAutoStream = new CheckBox
         {
-            Text = "Start silent keep-alive stream automatically when application launches",
-            Location = new Point(20, 82),
+            Text = "Start silent keep-alive stream automatically on app launch",
+            Location = new Point(20, 80),
             AutoSize = true,
             Checked = _settings.AutoStartStreamOnLaunch,
             ForeColor = TextSecondary
@@ -967,10 +1035,26 @@ public sealed class MainForm : Form
             _settings.Save();
         };
 
+        var chkAutoReconnect = new CheckBox
+        {
+            Text = "Automatically reconnect stream if speaker drops connection or turns off",
+            Location = new Point(20, 112),
+            AutoSize = true,
+            Checked = _settings.AutoReconnectOnDeviceAvailable,
+            ForeColor = ColorSuccess,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
+        chkAutoReconnect.CheckedChanged += (_, _) =>
+        {
+            _settings.AutoReconnectOnDeviceAvailable = chkAutoReconnect.Checked;
+            _audioService.AutoReconnect = chkAutoReconnect.Checked;
+            _settings.Save();
+        };
+
         var chkCloseToTray = new CheckBox
         {
-            Text = "Minimize to notification area (system tray) when closing main window",
-            Location = new Point(20, 114),
+            Text = "Minimize to notification area (tray) when closing window",
+            Location = new Point(20, 144),
             AutoSize = true,
             Checked = _settings.MinimizeToTrayOnClose,
             ForeColor = TextSecondary
@@ -984,23 +1068,25 @@ public sealed class MainForm : Form
         pnlGeneral.Controls.Add(lblGenHeader);
         pnlGeneral.Controls.Add(chkStartup);
         pnlGeneral.Controls.Add(chkAutoStream);
+        pnlGeneral.Controls.Add(chkAutoReconnect);
         pnlGeneral.Controls.Add(chkCloseToTray);
         pnl.Controls.Add(pnlGeneral);
+        curY += 210;
 
         // Notifications Group Card
         var pnlNotif = new Panel
         {
-            Size = new Size(710, 110),
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 110),
             BackColor = SurfacePrimary,
-            Padding = new Padding(24),
-            Margin = new Padding(0, 0, 0, 16)
+            Padding = new Padding(24)
         };
 
         var lblNotifHeader = new Label { Text = "Notification Area Alerts", Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = TextPrimary, Location = new Point(20, 14), AutoSize = true };
 
         var chkNotifyEvents = new CheckBox
         {
-            Text = "Show balloon notifications on stream start, stop, or device error",
+            Text = "Show balloon notifications on stream start, stop, or device reconnect",
             Location = new Point(20, 50),
             AutoSize = true,
             Checked = _settings.ShowNotifications,
@@ -1016,163 +1102,41 @@ public sealed class MainForm : Form
         pnlNotif.Controls.Add(chkNotifyEvents);
         pnl.Controls.Add(pnlNotif);
 
-        _contentContainer.Controls.Clear();
         _contentContainer.Controls.Add(pnl);
     }
 
     // ==========================================
-    // 5. TROUBLESHOOTING PAGE
-    // ==========================================
-    private void RenderTroubleshootingPage()
-    {
-        var pnl = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
-        };
-
-        var lblTitle = new Label { Text = "Troubleshooting Guide", Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = TextPrimary, AutoSize = true };
-        var lblSub = new Label { Text = "Step-by-step solutions for Bluetooth disconnects, audio routing, and speaker sleep timers.", Font = new Font("Segoe UI", 9.5F), ForeColor = TextMuted, AutoSize = true, Margin = new Padding(0, 0, 0, 16) };
-        pnl.Controls.Add(lblTitle);
-        pnl.Controls.Add(lblSub);
-
-        AddTroubleshootCard(pnl, "1. HOCO HC22 powers off after 10-15 minutes of silence",
-            "Hardware DSP Zero-Amplitude Timer",
-            "Some speaker firmware variants detect pure digital silence in the audio buffer and enter deep sleep regardless of an active connection. Verify in Windows Sound Settings that 'HOCO HC22 Stereo' is the active output. Periodically test with short audio chimes.");
-
-        AddTroubleshootCard(pnl, "2. Windows turns off the PC Bluetooth adapter",
-            "Windows Power Management Setting",
-            "Press Win+X > Device Manager > Bluetooth > select your Bluetooth adapter > Properties > Power Management > uncheck 'Allow computer to turn off this device to save power'.");
-
-        AddTroubleshootCard(pnl, "3. Speaker connected but no audio stream starts",
-            "Hands-Free vs Stereo Profile Conflict",
-            "Windows creates two endpoints: 'Hands-Free AG Audio' (mono, for calls) and 'Stereo' (high-quality A2DP). Disable Hands-Free in Windows Sound Control Panel for dedicated speaker playback.");
-
-        AddTroubleshootCard(pnl, "4. Tray icon hidden or not appearing",
-            "Taskbar Overflow Settings",
-            "Click the '^' chevron in the Windows taskbar. Drag the cute earbud icon onto the visible taskbar next to the clock.");
-
-        _contentContainer.Controls.Clear();
-        _contentContainer.Controls.Add(pnl);
-    }
-
-    private void AddTroubleshootCard(FlowLayoutPanel parent, string title, string cause, string solution)
-    {
-        var card = new Panel
-        {
-            Size = new Size(710, 100),
-            BackColor = SurfacePrimary,
-            Margin = new Padding(0, 0, 0, 12),
-            Padding = new Padding(20, 14, 20, 14)
-        };
-
-        var lblHeading = new Label { Text = title, Font = new Font("Segoe UI", 10F, FontStyle.Bold), ForeColor = AccentLavender, Location = new Point(18, 12), AutoSize = true };
-        var lblCause = new Label { Text = $"Likely cause: {cause}", Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = TextMuted, Location = new Point(18, 34), AutoSize = true };
-        var lblSol = new Label { Text = solution, Font = new Font("Segoe UI", 8.5F), ForeColor = TextSecondary, Location = new Point(18, 52), Size = new Size(670, 38) };
-
-        card.Controls.Add(lblHeading);
-        card.Controls.Add(lblCause);
-        card.Controls.Add(lblSol);
-        parent.Controls.Add(card);
-    }
-
-    // ==========================================
-    // 6. DIAGNOSTICS & LOGS PAGE
-    // ==========================================
-    private void RenderDiagnosticsPage()
-    {
-        var pnl = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
-        };
-
-        var lblTitle = new Label { Text = "Diagnostics & Logs", Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = TextPrimary, AutoSize = true };
-        var lblSub = new Label { Text = "Real-time application events, error traces, and diagnostic reporting.", Font = new Font("Segoe UI", 9.5F), ForeColor = TextMuted, AutoSize = true, Margin = new Padding(0, 0, 0, 14) };
-        pnl.Controls.Add(lblTitle);
-        pnl.Controls.Add(lblSub);
-
-        // Action Toolbar
-        var pnlBar = new Panel { Size = new Size(710, 38), Margin = new Padding(0, 0, 0, 12) };
-        var btnExport = new Button { Text = "Export Report", Size = new Size(110, 30), Location = new Point(0, 4), FlatStyle = FlatStyle.Flat, BackColor = SurfaceSecondary, ForeColor = AccentLavender, Cursor = Cursors.Hand };
-        btnExport.FlatAppearance.BorderSize = 0;
-        btnExport.Click += (_, _) =>
-        {
-            string report = LogService.ExportReport();
-            Clipboard.SetText(report);
-            MessageBox.Show("Diagnostic report copied to clipboard.", "Diagnostics", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        };
-
-        var btnOpenFolder = new Button { Text = "Open Log Folder", Size = new Size(125, 30), Location = new Point(120, 4), FlatStyle = FlatStyle.Flat, BackColor = SurfaceSecondary, ForeColor = TextSecondary, Cursor = Cursors.Hand };
-        btnOpenFolder.FlatAppearance.BorderSize = 0;
-        btnOpenFolder.Click += (_, _) =>
-        {
-            try { Process.Start(new ProcessStartInfo { FileName = LogService.LogDirectory, UseShellExecute = true }); } catch { }
-        };
-
-        var btnClear = new Button { Text = "Clear Logs", Size = new Size(95, 30), Location = new Point(255, 4), FlatStyle = FlatStyle.Flat, BackColor = SurfaceSecondary, ForeColor = ColorError, Cursor = Cursors.Hand };
-        btnClear.FlatAppearance.BorderSize = 0;
-        btnClear.Click += (_, _) =>
-        {
-            LogService.Clear();
-            RenderDiagnosticsPage();
-        };
-
-        pnlBar.Controls.Add(btnExport);
-        pnlBar.Controls.Add(btnOpenFolder);
-        pnlBar.Controls.Add(btnClear);
-        pnl.Controls.Add(pnlBar);
-
-        // Log viewer text box
-        var txtLogs = new TextBox
-        {
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            Size = new Size(710, 360),
-            BackColor = SurfacePrimary,
-            ForeColor = TextSecondary,
-            Font = new Font("Consolas", 8.5F),
-            BorderStyle = BorderStyle.None
-        };
-
-        var entries = LogService.GetEntries();
-        var lines = entries.Select(e => $"[{e.Timestamp:HH:mm:ss}] [{e.Severity}] [{e.EventType}] {e.Message}").ToArray();
-        txtLogs.Lines = lines;
-        pnl.Controls.Add(txtLogs);
-
-        _contentContainer.Controls.Clear();
-        _contentContainer.Controls.Add(pnl);
-    }
-
-    // ==========================================
-    // 7. ABOUT & UPDATES PAGE
+    // 5. ABOUT & UPDATES PAGE
     // ==========================================
     private void RenderAboutPage()
     {
-        var pnl = new FlowLayoutPanel
+        int contentWidth = GetResponsiveContentWidth();
+
+        var pnl = new Panel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true
+            Width = contentWidth,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            AutoScroll = false,
+            Location = new Point(0, 0)
         };
 
-        var lblTitle = new Label { Text = "About & Updates", Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = TextPrimary, AutoSize = true };
-        var lblSub = new Label { Text = "HOCO KeepAlive build specifications, licensing, and update checks.", Font = new Font("Segoe UI", 9.5F), ForeColor = TextMuted, AutoSize = true, Margin = new Padding(0, 0, 0, 16) };
+        int curY = 0;
+
+        var lblTitle = new Label { Text = "About & Updates", Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = TextPrimary, Location = new Point(0, curY), AutoSize = true };
         pnl.Controls.Add(lblTitle);
+        curY += 34;
+
+        var lblSub = new Label { Text = "HOCO KeepAlive build specifications, licensing, and update checks.", Font = new Font("Segoe UI", 9.5F), ForeColor = TextMuted, Location = new Point(0, curY), AutoSize = true };
         pnl.Controls.Add(lblSub);
+        curY += 28;
 
         var card = new Panel
         {
-            Size = new Size(710, 220),
+            Location = new Point(0, curY),
+            Size = new Size(contentWidth, 230),
             BackColor = SurfacePrimary,
-            Padding = new Padding(24),
-            Margin = new Padding(0, 0, 0, 16)
+            Padding = new Padding(24)
         };
 
         var lblAppName = new Label { Text = "HOCO KeepAlive", Font = new Font("Segoe UI", 14F, FontStyle.Bold), ForeColor = TextPrimary, Location = new Point(20, 16), AutoSize = true };
@@ -1181,20 +1145,20 @@ public sealed class MainForm : Form
         var lblSpecs = new Label
         {
             Text = "Runtime: Microsoft .NET 8 (Windows Forms)\n" +
-                   "Audio Engine: NAudio 2.2.1 WaveOutEvent / MMDeviceEnumerator\n" +
+                   "Audio Engine: NAudio 2.2.1 WaveOutEvent / Auto-Reconnect Watchdog\n" +
                    "Branding: Dual Cute Earbuds (Pale Lavender & White)\n" +
                    "License: MIT License • Free & Open Source\n" +
                    "Publisher: Raiyan",
             Font = new Font("Segoe UI", 8.5F),
             ForeColor = TextSecondary,
             Location = new Point(22, 72),
-            Size = new Size(600, 80)
+            Size = new Size(Math.Max(300, contentWidth - 44), 80)
         };
 
         var btnReleases = new Button
         {
             Text = "View GitHub Releases",
-            Location = new Point(22, 164),
+            Location = new Point(22, 168),
             Size = new Size(160, 32),
             FlatStyle = FlatStyle.Flat,
             BackColor = SurfaceSecondary,
@@ -1210,7 +1174,6 @@ public sealed class MainForm : Form
         card.Controls.Add(btnReleases);
         pnl.Controls.Add(card);
 
-        _contentContainer.Controls.Clear();
         _contentContainer.Controls.Add(pnl);
     }
 
@@ -1223,8 +1186,8 @@ public sealed class MainForm : Form
         switch (state)
         {
             case AudioEngineState.Running:
-                _lblTopStatusPill.Text = "RUNNING";
-                _lblTopStatusPill.BackColor = Color.FromArgb(20, 83, 45); // Emerald-900
+                _lblTopStatusPill.Text = "RUNNING SILENTLY";
+                _lblTopStatusPill.BackColor = Color.FromArgb(20, 83, 45);
                 _lblTopStatusPill.ForeColor = ColorSuccess;
 
                 if (_btnOverviewToggle != null)
@@ -1237,23 +1200,38 @@ public sealed class MainForm : Form
                 if (_lblStateDesc != null) _lblStateDesc.Text = "Digital silence is actively maintaining the Bluetooth audio link.";
                 break;
 
-            case AudioEngineState.DeviceUnavailable:
-                _lblTopStatusPill.Text = "UNAVAILABLE";
+            case AudioEngineState.Recovering:
+                _lblTopStatusPill.Text = "AUTO-RECONNECTING...";
                 _lblTopStatusPill.BackColor = Color.FromArgb(113, 63, 18);
                 _lblTopStatusPill.ForeColor = ColorWarning;
 
                 if (_btnOverviewToggle != null)
                 {
-                    _btnOverviewToggle.Text = "Retry Connection";
+                    _btnOverviewToggle.Text = "Auto-Reconnecting...";
+                    _btnOverviewToggle.BackColor = ColorWarning;
+                    _btnOverviewToggle.ForeColor = BgMain;
+                }
+                if (_lblStateTitle != null) _lblStateTitle.Text = "Reconnecting to Speaker...";
+                if (_lblStateDesc != null) _lblStateDesc.Text = "Waiting for HOCO HC22 audio link to reconnect. Stream will resume automatically.";
+                break;
+
+            case AudioEngineState.DeviceUnavailable:
+                _lblTopStatusPill.Text = "DEVICE UNAVAILABLE";
+                _lblTopStatusPill.BackColor = Color.FromArgb(113, 63, 18);
+                _lblTopStatusPill.ForeColor = ColorWarning;
+
+                if (_btnOverviewToggle != null)
+                {
+                    _btnOverviewToggle.Text = "Retry / Pair Device";
                     _btnOverviewToggle.BackColor = ColorWarning;
                     _btnOverviewToggle.ForeColor = BgMain;
                 }
                 if (_lblStateTitle != null) _lblStateTitle.Text = "Device unavailable";
-                if (_lblStateDesc != null) _lblStateDesc.Text = "The selected audio output device is not currently connected.";
+                if (_lblStateDesc != null) _lblStateDesc.Text = "Target audio device is disconnected. Auto-reconnect watchdog is monitoring.";
                 break;
 
             case AudioEngineState.Starting:
-                _lblTopStatusPill.Text = "STARTING";
+                _lblTopStatusPill.Text = "STARTING...";
                 _lblTopStatusPill.BackColor = Color.FromArgb(30, 58, 138);
                 _lblTopStatusPill.ForeColor = ColorInfo;
 
@@ -1294,7 +1272,7 @@ public sealed class MainForm : Form
                     _btnOverviewToggle.ForeColor = BgMain;
                 }
                 if (_lblStateTitle != null) _lblStateTitle.Text = "Ready to keep audio active";
-                if (_lblStateDesc != null) _lblStateDesc.Text = "Start a silent audio stream to help keep your speaker's audio session active.";
+                if (_lblStateDesc != null) _lblStateDesc.Text = "Start a lightweight silent stream to help prevent your Bluetooth speaker from disconnecting during pauses.";
                 break;
         }
 

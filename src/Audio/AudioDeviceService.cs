@@ -49,4 +49,21 @@ public static class AudioDeviceService
             return false;
         }
     }
+
+    /// <summary>
+    /// Looks for a matching device by name (e.g. "HOCO", "HC22", or preferred name).
+    /// </summary>
+    public static AudioDeviceInfo? FindDeviceByName(string? preferredName)
+    {
+        if (string.IsNullOrWhiteSpace(preferredName)) return null;
+
+        var devices = GetPlaybackDevices();
+        // Exact match
+        var match = devices.FirstOrDefault(d => string.Equals(d.Name, preferredName, StringComparison.OrdinalIgnoreCase));
+        if (match != null) return match;
+
+        // Partial match
+        return devices.FirstOrDefault(d => d.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase) ||
+                                           (preferredName.Contains("HOCO", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("HOCO", StringComparison.OrdinalIgnoreCase)));
+    }
 }

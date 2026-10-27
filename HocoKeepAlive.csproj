@@ -14,11 +14,13 @@
     <Description>Silent Bluetooth audio keep-alive utility</Description>
     <Company>Raiyan</Company>
     <Product>HOCO KeepAlive</Product>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;node_modules\**;dist\**;web\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Test sources must be compiled only by the test project, not the application. -->
-    <Compile Remove="tests/**/*.cs" />
+    <!-- Test sources and web sources must be excluded from application compilation -->
+    <Compile Remove="tests\**" />
+    <Compile Remove="web\**" />
   </ItemGroup>
 
   <ItemGroup>

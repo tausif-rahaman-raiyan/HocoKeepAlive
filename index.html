@@ -8,8 +8,41 @@
     <meta name="description" content="Silent Bluetooth audio keep-alive web utility to prevent wireless speakers and earbuds like HOCO HC22 from disconnecting during pauses." />
     <meta property="og:title" content="HOCO KeepAlive" />
     <meta property="og:description" content="Silent Bluetooth audio keep-alive web utility to prevent wireless speakers and earbuds like HOCO HC22 from disconnecting during pauses." />
+    <script>
+      // Defensive shim: provide a setter on window.fetch so browser extensions / interceptors don't throw
+      try {
+        let _fetch = window.fetch ? window.fetch.bind(window) : undefined;
+        Object.defineProperty(window, 'fetch', {
+          get: function () {
+            return _fetch;
+          },
+          set: function (newFetch) {
+            _fetch = newFetch;
+          },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (_) {
+        try {
+          const f = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            value: f,
+            writable: true,
+            configurable: true
+          });
+        } catch (__) {}
+      }
+
+      // Filter and prevent external browser extension errors from breaking application execution
+      window.addEventListener('error', function (event) {
+        if (event && event.filename && (event.filename.indexOf('chrome-extension://') !== -1 || event.filename.indexOf('moz-extension://') !== -1)) {
+          event.preventDefault();
+          return false;
+        }
+      });
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased min-h-screen selection:bg-indigo-500 selection:text-white">
+  <body class="bg-[#0E1220] text-[#F5F7FF] antialiased min-h-screen selection:bg-[#C9D5FF] selection:text-[#0E1220]">
     <div id="root"></div>
     <script type="module" src="/web/main.tsx"></script>
   </body>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using HocoKeepAlive.Diagnostics;
 using NAudio.Wave;
 
@@ -21,13 +22,35 @@ public sealed class AudioKeepAliveService : IDisposable
     private SilentWaveProvider? _provider;
     private AudioEngineState _state = AudioEngineState.Stopped;
     private int _targetDeviceNumber = -1;
+    private string _preferredDeviceName = "Windows Default Playback Device";
     private DateTime? _startedAt;
     private DateTime? _stoppedAt;
     private string? _lastError;
 
+    // Automatic reconnection watchdog
+    private System.Threading.Timer? _reconnectTimer;
+    private bool _autoReconnect = true;
+    private bool _userExplicitlyStopped = false;
+
     public int SampleRate { get; set; } = 48000;
     public int Channels { get; set; } = 2;
     public int LatencyMs { get; set; } = 150;
+
+    public bool AutoReconnect
+    {
+        get => _autoReconnect;
+        set
+        {
+            _autoReconnect = value;
+            if (!value) StopReconnectionWatchdog();
+        }
+    }
+
+    public string PreferredDeviceName
+    {
+        get => _preferredDeviceName;
+        set => _preferredDeviceName = value ?? string.Empty;
+    }
 
     public event Action<AudioEngineState, string?>? StateChanged;
 
@@ -100,13 +123,21 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         lock (_syncRoot)
         {
+            _userExplicitlyStopped = false;
+            StopReconnectionWatchdog();
+
             if (_state == AudioEngineState.Running || _state == AudioEngineState.Starting)
             {
                 return true;
             }
 
             SetState(AudioEngineState.Starting, "Initializing audio pipeline...");
-            return StartStreamInternal();
+            bool ok = StartStreamInternal();
+            if (!ok && _autoReconnect)
+            {
+                StartReconnectionWatchdog();
+            }
+            return ok;
         }
     }
 
@@ -114,6 +145,9 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         lock (_syncRoot)
         {
+            _userExplicitlyStopped = true;
+            StopReconnectionWatchdog();
+
             if (_state == AudioEngineState.Stopped || _state == AudioEngineState.Exiting)
             {
                 return;
@@ -146,9 +180,21 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             CleanupOutput();
 
-            if (!AudioDeviceService.IsDeviceAvailable(_targetDeviceNumber))
+            // Try resolving by device number or by name
+            int deviceToUse = _targetDeviceNumber;
+            if (!AudioDeviceService.IsDeviceAvailable(deviceToUse))
             {
-                string msg = "Selected playback device is unavailable or disconnected.";
+                var match = AudioDeviceService.FindDeviceByName(_preferredDeviceName);
+                if (match != null)
+                {
+                    deviceToUse = match.DeviceNumber;
+                    _targetDeviceNumber = deviceToUse;
+                }
+            }
+
+            if (!AudioDeviceService.IsDeviceAvailable(deviceToUse))
+            {
+                string msg = "Selected playback device is unavailable or disconnected. Auto-reconnect is monitoring...";
                 _lastError = msg;
                 LogService.Log(LogSeverity.Warning, "AudioEngine", msg);
                 SetState(AudioEngineState.DeviceUnavailable, msg);
@@ -158,7 +204,7 @@ public sealed class AudioKeepAliveService : IDisposable
             _provider = new SilentWaveProvider(SampleRate, Channels);
             _output = new WaveOutEvent
             {
-                DeviceNumber = _targetDeviceNumber,
+                DeviceNumber = deviceToUse,
                 DesiredLatency = LatencyMs,
                 NumberOfBuffers = 3
             };
@@ -169,7 +215,7 @@ public sealed class AudioKeepAliveService : IDisposable
 
             _startedAt = DateTime.UtcNow;
             _lastError = null;
-            LogService.Log(LogSeverity.Info, "AudioEngine", $"Silent stream active @ {SampleRate} Hz, {Channels} ch, latency {LatencyMs} ms on device {_targetDeviceNumber}.");
+            LogService.Log(LogSeverity.Info, "AudioEngine", $"Silent stream active @ {SampleRate} Hz, {Channels} ch, latency {LatencyMs} ms on device {deviceToUse}.");
             SetState(AudioEngineState.Running);
             return true;
         }
@@ -201,14 +247,91 @@ public sealed class AudioKeepAliveService : IDisposable
             if (e.Exception != null)
             {
                 _lastError = e.Exception.Message;
-                LogService.Log(LogSeverity.Error, "AudioEngine", "Audio playback stopped unexpectedly.", e.Exception.Message);
-                SetState(AudioEngineState.Error, e.Exception.Message);
+                LogService.Log(LogSeverity.Warning, "AudioEngine", "Playback endpoint disconnected: " + e.Exception.Message);
+                SetState(AudioEngineState.Recovering, "Device disconnected. Auto-reconnecting...");
+
+                if (_autoReconnect && !_userExplicitlyStopped)
+                {
+                    StartReconnectionWatchdog();
+                }
+                else
+                {
+                    SetState(AudioEngineState.Error, e.Exception.Message);
+                }
             }
             else
             {
                 SetState(AudioEngineState.Stopped);
             }
         }
+    }
+
+    private void StartReconnectionWatchdog()
+    {
+        StopReconnectionWatchdog();
+        LogService.Log(LogSeverity.Info, "AudioEngine", "Auto-reconnection watchdog active. Polling for device...");
+        _reconnectTimer = new System.Threading.Timer(OnReconnectTimerTick, null, 1500, 2000);
+    }
+
+    private void StopReconnectionWatchdog()
+    {
+        try
+        {
+            _reconnectTimer?.Dispose();
+            _reconnectTimer = null;
+        }
+        catch { }
+    }
+
+    private void OnReconnectTimerTick(object? state)
+    {
+        lock (_syncRoot)
+        {
+            if (_userExplicitlyStopped || _state == AudioEngineState.Running || _state == AudioEngineState.Exiting)
+            {
+                StopReconnectionWatchdog();
+                return;
+            }
+
+            // Check if device is now available
+            var match = AudioDeviceService.FindDeviceByName(_preferredDeviceName);
+            bool isAvailable = match != null || AudioDeviceService.IsDeviceAvailable(_targetDeviceNumber);
+
+            if (isAvailable)
+            {
+                if (match != null)
+                {
+                    _targetDeviceNumber = match.DeviceNumber;
+                }
+
+                LogService.Log(LogSeverity.Info, "AudioEngine", "Target audio device detected! Resuming keep-alive stream automatically.");
+                bool started = StartStreamInternal();
+                if (started)
+                {
+                    StopReconnectionWatchdog();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Launches Windows Bluetooth settings to pair if needed, and fast-polls to auto-connect immediately.
+    /// </summary>
+    public void LaunchAutoPairAssistant()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = "ms-settings:bluetooth", UseShellExecute = true });
+            LogService.Log(LogSeverity.Info, "Bluetooth", "Opened Windows Bluetooth settings for pairing.");
+        }
+        catch (Exception ex)
+        {
+            LogService.Log(LogSeverity.Warning, "Bluetooth", "Could not open Bluetooth settings: " + ex.Message);
+        }
+
+        // Fast poll for the paired device
+        _userExplicitlyStopped = false;
+        StartReconnectionWatchdog();
     }
 
     private void CleanupOutput()
@@ -234,7 +357,6 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         _state = newState;
 
-        // One faulty UI/plugin subscriber must not break audio lifecycle transitions.
         var handlers = StateChanged;
         if (handlers == null) return;
 
@@ -249,12 +371,9 @@ public sealed class AudioKeepAliveService : IDisposable
                 try
                 {
                     LogService.Log(LogSeverity.Warning, "AudioEngine",
-                        "A state-change subscriber failed; the audio engine will continue.", ex.ToString());
+                        "A state-change subscriber failed; audio engine will continue.", ex.ToString());
                 }
-                catch
-                {
-                    // Diagnostics must never interrupt audio playback or cleanup.
-                }
+                catch { }
             }
         }
     }
@@ -264,6 +383,7 @@ public sealed class AudioKeepAliveService : IDisposable
         lock (_syncRoot)
         {
             SetState(AudioEngineState.Exiting);
+            StopReconnectionWatchdog();
             CleanupOutput();
         }
     }
