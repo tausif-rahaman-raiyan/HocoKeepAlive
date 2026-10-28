@@ -27,6 +27,8 @@ public sealed class KeepAliveContext : ApplicationContext
             TargetDeviceNumber = _settings.PreferredDeviceNumber,
             PreferredDeviceName = _settings.PreferredDeviceName,
             AutoReconnect = _settings.AutoReconnectOnDeviceAvailable,
+            AutoPauseOnOtherAudio = _settings.AutoPauseOnOtherAudio,
+            ResumeDelayMilliseconds = _settings.ResumeDelayMilliseconds,
             SampleRate = _settings.SampleRate,
             Channels = _settings.Channels,
             LatencyMs = _settings.LatencyMilliseconds
@@ -135,6 +137,11 @@ public sealed class KeepAliveContext : ApplicationContext
                 {
                     _tray.ShowBalloonTip(1500, "HOCO KeepAlive", "Silent stream active. Bluetooth audio connection is maintained.", ToolTipIcon.Info);
                 }
+                break;
+
+            case AudioEngineState.PausedByOtherAudio:
+                _toggleItem.Text = "Stop Keep-Alive";
+                _tray.Text = "HOCO KeepAlive — Standby (Media active)";
                 break;
 
             case AudioEngineState.Recovering:

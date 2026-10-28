@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HocoKeepAlive.Diagnostics;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace HocoKeepAlive.Audio;
@@ -9,6 +10,7 @@ public enum AudioEngineState
     Stopped,
     Starting,
     Running,
+    PausedByOtherAudio,
     DeviceUnavailable,
     Recovering,
     Error,
@@ -32,6 +34,14 @@ public sealed class AudioKeepAliveService : IDisposable
     private bool _autoReconnect = true;
     private bool _userExplicitlyStopped = false;
 
+    // Smart auto-pause when user plays music / video (and auto-resume when paused)
+    private System.Threading.Timer? _activityWatchdogTimer;
+    private MMDeviceEnumerator? _mmEnumerator;
+    private MMDevice? _currentMmDevice;
+    private DateTime _lastOtherAudioDetectedUtc = DateTime.MinValue;
+    private bool _autoPauseOnOtherAudio = true;
+    private int _resumeDelayMilliseconds = 1200;
+
     public int SampleRate { get; set; } = 48000;
     public int Channels { get; set; } = 2;
     public int LatencyMs { get; set; } = 150;
@@ -46,10 +56,37 @@ public sealed class AudioKeepAliveService : IDisposable
         }
     }
 
+    public bool AutoPauseOnOtherAudio
+    {
+        get => _autoPauseOnOtherAudio;
+        set
+        {
+            lock (_syncRoot)
+            {
+                _autoPauseOnOtherAudio = value;
+                if (!value && _state == AudioEngineState.PausedByOtherAudio)
+                {
+                    // Resume immediately if auto-pause was toggled off while paused
+                    ResumeKeepAliveStream();
+                }
+            }
+        }
+    }
+
+    public int ResumeDelayMilliseconds
+    {
+        get => _resumeDelayMilliseconds;
+        set => _resumeDelayMilliseconds = Math.Max(300, Math.Min(10000, value));
+    }
+
     public string PreferredDeviceName
     {
         get => _preferredDeviceName;
-        set => _preferredDeviceName = value ?? string.Empty;
+        set
+        {
+            _preferredDeviceName = value ?? string.Empty;
+            RefreshCurrentMmDevice();
+        }
     }
 
     public event Action<AudioEngineState, string?>? StateChanged;
@@ -98,8 +135,9 @@ public sealed class AudioKeepAliveService : IDisposable
             {
                 if (_targetDeviceNumber == value) return;
                 _targetDeviceNumber = value;
+                RefreshCurrentMmDevice();
                 LogService.Log(LogSeverity.Info, "AudioEngine", $"Target playback device set to ID: {value}");
-                if (_state == AudioEngineState.Running)
+                if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio)
                 {
                     RestartStreamInternal();
                 }
@@ -113,7 +151,8 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             lock (_syncRoot)
             {
-                if (_state != AudioEngineState.Running || _startedAt == null) return null;
+                if ((_state != AudioEngineState.Running && _state != AudioEngineState.PausedByOtherAudio) || _startedAt == null)
+                    return null;
                 return DateTime.UtcNow - _startedAt.Value;
             }
         }
@@ -126,7 +165,7 @@ public sealed class AudioKeepAliveService : IDisposable
             _userExplicitlyStopped = false;
             StopReconnectionWatchdog();
 
-            if (_state == AudioEngineState.Running || _state == AudioEngineState.Starting)
+            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.Starting)
             {
                 return true;
             }
@@ -147,6 +186,7 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             _userExplicitlyStopped = true;
             StopReconnectionWatchdog();
+            StopActivityWatchdog();
 
             if (_state == AudioEngineState.Stopped || _state == AudioEngineState.Exiting)
             {
@@ -163,7 +203,7 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         lock (_syncRoot)
         {
-            if (_state == AudioEngineState.Running)
+            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio)
             {
                 Stop();
             }
@@ -179,6 +219,7 @@ public sealed class AudioKeepAliveService : IDisposable
         try
         {
             CleanupOutput();
+            RefreshCurrentMmDevice();
 
             // Try resolving by device number or by name
             int deviceToUse = _targetDeviceNumber;
@@ -211,12 +252,27 @@ public sealed class AudioKeepAliveService : IDisposable
 
             _output.PlaybackStopped += OnPlaybackStopped;
             _output.Init(_provider);
-            _output.Play();
 
-            _startedAt = DateTime.UtcNow;
-            _lastError = null;
-            LogService.Log(LogSeverity.Info, "AudioEngine", $"Silent stream active @ {SampleRate} Hz, {Channels} ch, latency {LatencyMs} ms on device {deviceToUse}.");
-            SetState(AudioEngineState.Running);
+            // Check if other audio is ALREADY playing before starting
+            float initialPeak = GetMasterPeakValue();
+            if (_autoPauseOnOtherAudio && initialPeak > 0.003f)
+            {
+                _startedAt = DateTime.UtcNow;
+                _lastError = null;
+                _lastOtherAudioDetectedUtc = DateTime.UtcNow;
+                LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio currently active (peak {initialPeak:F3}). Placing keep-alive in standby.");
+                SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Keep-Alive standing by in background.");
+            }
+            else
+            {
+                _output.Play();
+                _startedAt = DateTime.UtcNow;
+                _lastError = null;
+                LogService.Log(LogSeverity.Info, "AudioEngine", $"Silent stream active @ {SampleRate} Hz, {Channels} ch, latency {LatencyMs} ms on device {deviceToUse}.");
+                SetState(AudioEngineState.Running);
+            }
+
+            StartActivityWatchdog();
             return true;
         }
         catch (Exception ex)
@@ -259,12 +315,161 @@ public sealed class AudioKeepAliveService : IDisposable
                     SetState(AudioEngineState.Error, e.Exception.Message);
                 }
             }
-            else
+            else if (_state != AudioEngineState.PausedByOtherAudio)
             {
                 SetState(AudioEngineState.Stopped);
             }
         }
     }
+
+    #region Smart Audio Activity Watchdog (Auto-Pause / Auto-Resume)
+
+    private void StartActivityWatchdog()
+    {
+        StopActivityWatchdog();
+        // Check audio peak every 200 ms with ultra-low CPU overhead
+        _activityWatchdogTimer = new System.Threading.Timer(OnActivityWatchdogTick, null, 250, 200);
+    }
+
+    private void StopActivityWatchdog()
+    {
+        try
+        {
+            _activityWatchdogTimer?.Dispose();
+            _activityWatchdogTimer = null;
+        }
+        catch { }
+    }
+
+    private void OnActivityWatchdogTick(object? state)
+    {
+        lock (_syncRoot)
+        {
+            if (_userExplicitlyStopped || _state == AudioEngineState.Stopped || _state == AudioEngineState.Exiting)
+            {
+                StopActivityWatchdog();
+                return;
+            }
+
+            if (!_autoPauseOnOtherAudio)
+            {
+                if (_state == AudioEngineState.PausedByOtherAudio)
+                {
+                    ResumeKeepAliveStream();
+                }
+                return;
+            }
+
+            float peak = GetMasterPeakValue();
+
+            // Threshold: 0.003f (0.3% amplitude). Digital silence from our provider is strictly 0.000f.
+            if (peak > 0.003f)
+            {
+                _lastOtherAudioDetectedUtc = DateTime.UtcNow;
+
+                if (_state == AudioEngineState.Running)
+                {
+                    try
+                    {
+                        _output?.Pause();
+                    }
+                    catch { }
+
+                    LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio playing (peak: {peak:F3}). Paused background silent stream.");
+                    SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Background silent stream paused.");
+                }
+            }
+            else
+            {
+                // Silence detected
+                if (_state == AudioEngineState.PausedByOtherAudio)
+                {
+                    var silenceDurationMs = (DateTime.UtcNow - _lastOtherAudioDetectedUtc).TotalMilliseconds;
+                    if (silenceDurationMs >= _resumeDelayMilliseconds)
+                    {
+                        // Other audio has stopped / paused! Resume silent keep-alive stream automatically
+                        ResumeKeepAliveStream();
+                    }
+                }
+            }
+        }
+    }
+
+    private void ResumeKeepAliveStream()
+    {
+        try
+        {
+            if (_output != null)
+            {
+                _output.Play();
+            }
+            else
+            {
+                StartStreamInternal();
+                return;
+            }
+
+            LogService.Log(LogSeverity.Info, "AudioEngine", "Other audio paused or stopped. Automatically resumed silent keep-alive stream.");
+            SetState(AudioEngineState.Running, "Silent keep-alive stream resumed.");
+        }
+        catch (Exception ex)
+        {
+            LogService.Log(LogSeverity.Warning, "AudioEngine", "Could not resume audio stream: " + ex.Message);
+            RestartStreamInternal();
+        }
+    }
+
+    private float GetMasterPeakValue()
+    {
+        try
+        {
+            if (_currentMmDevice == null)
+            {
+                RefreshCurrentMmDevice();
+            }
+
+            return _currentMmDevice?.AudioMeterInformation?.MasterPeakValue ?? 0f;
+        }
+        catch
+        {
+            _currentMmDevice = null;
+            return 0f;
+        }
+    }
+
+    private void RefreshCurrentMmDevice()
+    {
+        try
+        {
+            _mmEnumerator ??= new MMDeviceEnumerator();
+            if (_targetDeviceNumber == -1 || string.IsNullOrWhiteSpace(_preferredDeviceName) ||
+                _preferredDeviceName.Contains("Default", StringComparison.OrdinalIgnoreCase))
+            {
+                _currentMmDevice = _mmEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                return;
+            }
+
+            var endpoints = _mmEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+            foreach (var ep in endpoints)
+            {
+                if (ep.FriendlyName.Contains(_preferredDeviceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _currentMmDevice = ep;
+                    return;
+                }
+            }
+
+            _currentMmDevice = _mmEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        }
+        catch
+        {
+            _currentMmDevice = null;
+        }
+    }
+
+    #endregion
+
+    #region Auto-Reconnection Watchdog
 
     private void StartReconnectionWatchdog()
     {
@@ -287,7 +492,7 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         lock (_syncRoot)
         {
-            if (_userExplicitlyStopped || _state == AudioEngineState.Running || _state == AudioEngineState.Exiting)
+            if (_userExplicitlyStopped || _state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.Exiting)
             {
                 StopReconnectionWatchdog();
                 return;
@@ -314,9 +519,6 @@ public sealed class AudioKeepAliveService : IDisposable
         }
     }
 
-    /// <summary>
-    /// Launches Windows Bluetooth settings to pair if needed, and fast-polls to auto-connect immediately.
-    /// </summary>
     public void LaunchAutoPairAssistant()
     {
         try
@@ -329,10 +531,11 @@ public sealed class AudioKeepAliveService : IDisposable
             LogService.Log(LogSeverity.Warning, "Bluetooth", "Could not open Bluetooth settings: " + ex.Message);
         }
 
-        // Fast poll for the paired device
         _userExplicitlyStopped = false;
         StartReconnectionWatchdog();
     }
+
+    #endregion
 
     private void CleanupOutput()
     {
@@ -384,7 +587,17 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             SetState(AudioEngineState.Exiting);
             StopReconnectionWatchdog();
+            StopActivityWatchdog();
             CleanupOutput();
+
+            try
+            {
+                _currentMmDevice?.Dispose();
+                _currentMmDevice = null;
+                _mmEnumerator?.Dispose();
+                _mmEnumerator = null;
+            }
+            catch { }
         }
     }
 }

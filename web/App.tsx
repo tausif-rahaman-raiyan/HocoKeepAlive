@@ -43,6 +43,9 @@ export default function App() {
   const [channels, setChannels] = useState<number>(2);
   const [bufferLatency, setBufferLatency] = useState<number>(150);
   const [autoReconnect, setAutoReconnect] = useState<boolean>(true);
+  const [autoPauseOnOtherAudio, setAutoPauseOnOtherAudio] = useState<boolean>(true);
+  const [isPausedByOtherAudio, setIsPausedByOtherAudio] = useState<boolean>(false);
+  const [isSimulatingOtherAudio, setIsSimulatingOtherAudio] = useState<boolean>(false);
 
   // Settings
   const [launchOnStartup, setLaunchOnStartup] = useState<boolean>(false);
@@ -243,6 +246,7 @@ export default function App() {
       // Ignored
     } finally {
       setIsRunning(false);
+      setIsPausedByOtherAudio(false);
       if (notifyOnStartStop) {
         triggerToast('Silent keep-alive stopped.');
       }
@@ -252,6 +256,32 @@ export default function App() {
   const toggleKeepAlive = () => {
     if (isRunning || isRecovering) stopKeepAlive();
     else startKeepAlive();
+  };
+
+  const toggleSimulatedAudio = (play: boolean) => {
+    setIsSimulatingOtherAudio(play);
+    if (!autoPauseOnOtherAudio) return;
+
+    if (play) {
+      if (isRunning && !isPausedByOtherAudio) {
+        if (audioCtxRef.current && audioCtxRef.current.state === 'running') {
+          audioCtxRef.current.suspend();
+        }
+        setIsPausedByOtherAudio(true);
+        triggerToast('Other media active (e.g. YouTube/Spotify). Silent stream paused on standby.');
+      }
+    } else {
+      if (isRunning && isPausedByOtherAudio) {
+        triggerToast('Media paused. Resuming silent keep-alive in 1.2s...');
+        setTimeout(() => {
+          if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+            audioCtxRef.current.resume();
+          }
+          setIsPausedByOtherAudio(false);
+          triggerToast('Silent keep-alive stream resumed automatically!');
+        }, 1200);
+      }
+    }
   };
 
   const playVerificationChime = () => {
@@ -285,7 +315,7 @@ export default function App() {
     setUpdateStatus(null);
     setTimeout(() => {
       setCheckingUpdate(false);
-      setUpdateStatus('HOCO KeepAlive 1.0.0 is the latest available release.');
+      setUpdateStatus('HOCO KeepAlive 1.0.2 is the latest available release.');
     }, 1000);
   };
 
@@ -338,7 +368,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="font-bold text-[14px] leading-tight text-[#F5F7FF] tracking-tight">HOCO KeepAlive</h1>
-              <span className="text-[11px] text-[#77839D] font-mono">v1.0.0 · x64</span>
+              <span className="text-[11px] text-[#77839D] font-mono">v1.0.2 · x64</span>
             </div>
           </div>
 
@@ -405,14 +435,22 @@ export default function App() {
           <div className="flex items-center gap-3">
             <span
               className={`text-[11px] font-mono font-bold px-3 py-1 rounded-full border ${
-                isRunning
+                isPausedByOtherAudio
+                  ? 'bg-[#312E81]/30 text-[#C9D5FF] border-[#6366F1]/40'
+                  : isRunning
                   ? 'bg-[#4ADE80]/15 text-[#4ADE80] border-[#4ADE80]/30'
                   : isRecovering
                   ? 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30'
                   : 'bg-[#1D2840] text-[#77839D] border-[#2B3650]'
               }`}
             >
-              {isRunning ? 'RUNNING SILENTLY' : isRecovering ? 'RECONNECTING...' : 'STOPPED'}
+              {isPausedByOtherAudio
+                ? 'STANDBY (MEDIA ACTIVE)'
+                : isRunning
+                ? 'RUNNING SILENTLY'
+                : isRecovering
+                ? 'RECONNECTING...'
+                : 'STOPPED'}
             </span>
           </div>
         </header>
@@ -440,14 +478,18 @@ export default function App() {
                       KEEP-ALIVE STATUS
                     </span>
                     <h3 className="text-2xl font-bold text-[#F5F7FF]">
-                      {isRunning
+                      {isPausedByOtherAudio
+                        ? 'Standing by (Audio active elsewhere)'
+                        : isRunning
                         ? 'Keep-Alive is running'
                         : isRecovering
                         ? 'Reconnecting to speaker...'
                         : 'Ready to keep audio active'}
                     </h3>
                     <p className="text-sm text-[#A7B2C8] leading-relaxed">
-                      {isRunning
+                      {isPausedByOtherAudio
+                        ? 'HOCO KeepAlive detected sound from another application (Spotify, YouTube, video, or game) and turned off the silent background stream. It will resume automatically when you pause.'
+                        : isRunning
                         ? 'Silent audio (zero-amplitude PCM) is being streamed through your output device to maintain the Bluetooth link.'
                         : isRecovering
                         ? 'The audio stream stopped. Auto-reconnect watchdog is actively polling for HOCO HC22 to reconnect.'
@@ -460,12 +502,19 @@ export default function App() {
                     <button
                       onClick={toggleKeepAlive}
                       className={`px-7 py-3.5 rounded-xl font-bold text-sm flex items-center gap-2.5 transition-all shadow-lg cursor-pointer ${
-                        isRunning || isRecovering
+                        isPausedByOtherAudio
+                          ? 'bg-[#334155] hover:bg-[#475569] text-[#F5F7FF] shadow-black/20'
+                          : isRunning || isRecovering
                           ? 'bg-[#FB7185] hover:bg-[#FB7185]/90 text-white shadow-[#FB7185]/20'
                           : 'bg-[#C9D5FF] hover:bg-[#AEBFFF] text-[#0E1220] shadow-[#C9D5FF]/10'
                       }`}
                     >
-                      {isRunning ? (
+                      {isPausedByOtherAudio ? (
+                        <>
+                          <Square className="w-4 h-4 fill-current" />
+                          <span>Stop Keep-Alive</span>
+                        </>
+                      ) : isRunning ? (
                         <>
                           <Square className="w-4 h-4 fill-current" />
                           <span>Stop Keep-Alive</span>
@@ -482,9 +531,9 @@ export default function App() {
                         </>
                       )}
                     </button>
-                    {isRunning && (
-                      <span className="text-xs font-mono font-semibold text-[#4ADE80]">
-                        Session Uptime: {formatDuration(elapsedSeconds)}
+                    {(isRunning || isPausedByOtherAudio) && (
+                      <span className={`text-xs font-mono font-semibold ${isPausedByOtherAudio ? 'text-[#C9D5FF]' : 'text-[#4ADE80]'}`}>
+                        {isPausedByOtherAudio ? 'Paused by media' : `Session Uptime: ${formatDuration(elapsedSeconds)}`}
                       </span>
                     )}
                   </div>
@@ -511,6 +560,55 @@ export default function App() {
                   <Volume2 className="w-3.5 h-3.5" />
                   <span>Verify Sound Routing</span>
                 </button>
+              </div>
+
+              {/* Smart Auto-Pause & Media Detection Banner */}
+              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-4 sm:p-5 w-full shadow-md">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isPausedByOtherAudio ? 'bg-[#312E81] text-[#C9D5FF]' : 'bg-[#1D2840] text-[#77839D]'
+                      }`}
+                    >
+                      <Volume2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-[#F5F7FF]">Smart Auto-Pause &amp; Auto-Resume</h4>
+                        <span className="text-[10px] bg-[#C9D5FF]/15 text-[#C9D5FF] px-2 py-0.5 rounded-full font-mono font-semibold">
+                          Active
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#A7B2C8] mt-1 leading-relaxed max-w-2xl">
+                        When you play music, YouTube, or video games, Keep-Alive turns off playing in the background. The moment you pause or stop playing, it automatically starts back up to keep your Bluetooth connection awake.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-shrink-0 self-start md:self-center">
+                    <button
+                      onClick={() => toggleSimulatedAudio(!isSimulatingOtherAudio)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                        isSimulatingOtherAudio
+                          ? 'bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0E1220] shadow-md'
+                          : 'bg-[#1D2840] hover:bg-[#25314B] text-[#C9D5FF] border border-[#2B3650]'
+                      }`}
+                    >
+                      {isSimulatingOtherAudio ? (
+                        <>
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>Simulate Pause (Auto-resumes)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Simulate Play (Auto-pauses)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Two Column Summary Grid */}
@@ -823,6 +921,23 @@ export default function App() {
 
                   <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
                     <div>
+                      <span className="font-semibold text-[#C9D5FF] block">
+                        Smart Auto-Pause when other media is playing
+                      </span>
+                      <span className="text-[#77839D]">
+                        Stops background silent stream when playing music or videos, auto-resumes when paused
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={autoPauseOnOtherAudio}
+                      onChange={(e) => setAutoPauseOnOtherAudio(e.target.checked)}
+                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
+                    <div>
                       <span className="font-semibold text-[#F5F7FF] block">
                         Start minimized to notification area (tray)
                       </span>
@@ -936,7 +1051,7 @@ export default function App() {
                   <div>
                     <h3 className="text-xl font-bold text-[#F5F7FF]">HOCO KeepAlive</h3>
                     <p className="text-xs text-[#C9D5FF] font-mono mt-0.5">
-                      Version 1.0.0 (Release x64) • Self-Contained Single-File
+                      Version 1.0.2 (Release x64) • Self-Contained Single-File
                     </p>
                     <p className="text-xs text-[#77839D] mt-1">
                       Designed for HOCO HC22 Wireless Speaker &amp; Bluetooth Audio
@@ -997,6 +1112,25 @@ export default function App() {
             </div>
           )}
         </main>
+
+        {/* Bottom Watermark Bar (Requested by user: "niche ekta watermark add kre dao with github icon and link") */}
+        <footer className="h-8 px-6 border-t border-[#2B3650]/50 bg-[#0B0F19] flex items-center justify-between text-[11px] text-[#77839D] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-[#C9D5FF] fill-current" viewBox="0 0 24 24">
+              <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+            </svg>
+            <span>HOCO KeepAlive <strong className="text-[#C9D5FF] font-mono">v1.0.2</strong> • Developed by <span className="text-[#F5F7FF] font-medium">Tausif Rahaman Raiyan</span></span>
+          </div>
+          <a
+            href="https://github.com/tausif-rahaman-raiyan/HocoKeepAlive"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[#C9D5FF] hover:underline flex items-center gap-1.5 transition-colors"
+          >
+            <span>github.com/tausif-rahaman-raiyan/HocoKeepAlive</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </footer>
       </div>
     </div>
   );

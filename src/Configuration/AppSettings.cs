@@ -19,6 +19,8 @@ public sealed class AppSettings
     public bool NotifyOnStartStop { get; set; } = true;
     public bool NotifyOnError { get; set; } = true;
     public bool AutoReconnectOnDeviceAvailable { get; set; } = true;
+    public bool AutoPauseOnOtherAudio { get; set; } = true;
+    public int ResumeDelayMilliseconds { get; set; } = 1200;
     public int SampleRate { get; set; } = 48000;
     public int Channels { get; set; } = 2;
     public int LatencyMilliseconds { get; set; } = 150;

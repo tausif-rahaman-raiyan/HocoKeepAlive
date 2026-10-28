@@ -18,6 +18,8 @@ public class AppSettingsTests
         Assert.True(settings.MinimizeToTrayOnClose);
         Assert.True(settings.ShowNotifications);
         Assert.True(settings.AutoReconnectOnDeviceAvailable);
+        Assert.True(settings.AutoPauseOnOtherAudio);
+        Assert.Equal(1200, settings.ResumeDelayMilliseconds);
         Assert.Equal(48000, settings.SampleRate);
         Assert.Equal(2, settings.Channels);
         Assert.Equal(150, settings.LatencyMilliseconds);
