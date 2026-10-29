@@ -1,4 +1,4 @@
-name: Build & Release Windows 11 Setup Installer
+name: HOCO KeepAlive — Single Windows Build & Release
 
 on:
   push:
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   build-setup:
-    name: Build HOCO KeepAlive Windows 11 Setup EXE
+    name: Build HOCO KeepAlive Windows 10/11 x64 Deliverables
     runs-on: windows-latest
     timeout-minutes: 25
 
@@ -102,14 +102,14 @@ jobs:
           }
           Write-Host "Inno Setup ready at $iscc"
 
-      - name: 9. Compile Windows 11 Setup Installer EXE
+      - name: 9. Compile Windows 10/11 Setup Installer EXE
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "installer.iss"
 
-          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.3.exe"
+          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.4.exe"
           if (!(Test-Path $setupExe)) {
             throw "Setup EXE was not produced at $setupExe."
           }
@@ -123,19 +123,19 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "deliverables" | Out-Null
-          Copy-Item "publish/HOCO KeepAlive.exe" "deliverables/HOCO-KeepAlive-1.0.3.exe"
-          Compress-Archive -Path "publish/*" -DestinationPath "deliverables/HOCO-KeepAlive-Portable-1.0.3-win-x64.zip" -Force
-          if (!(Test-Path "deliverables/HOCO-KeepAlive-1.0.3.exe")) { throw "Standalone EXE missing." }
-          if (!(Test-Path "deliverables/HOCO-KeepAlive-Portable-1.0.3-win-x64.zip")) { throw "Portable ZIP missing." }
+          Copy-Item "publish/HOCO KeepAlive.exe" "deliverables/HOCO-KeepAlive-1.0.4.exe"
+          Compress-Archive -Path "publish/*" -DestinationPath "deliverables/HOCO-KeepAlive-Portable-1.0.4-win-x64.zip" -Force
+          if (!(Test-Path "deliverables/HOCO-KeepAlive-1.0.4.exe")) { throw "Standalone EXE missing." }
+          if (!(Test-Path "deliverables/HOCO-KeepAlive-Portable-1.0.4-win-x64.zip")) { throw "Portable ZIP missing." }
 
       - name: 11. Upload all Windows deliverables
         uses: actions/upload-artifact@v4
         with:
-          name: HOCO-KeepAlive-Windows-v1.0.3
+          name: HOCO-KeepAlive-Windows-v1.0.4
           path: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.3.exe
-            deliverables/HOCO-KeepAlive-1.0.3.exe
-            deliverables/HOCO-KeepAlive-Portable-1.0.3-win-x64.zip
+            installer-output/HOCO-KeepAlive-Setup-1.0.4.exe
+            deliverables/HOCO-KeepAlive-1.0.4.exe
+            deliverables/HOCO-KeepAlive-Portable-1.0.4-win-x64.zip
           if-no-files-found: error
           retention-days: 90
 
@@ -144,11 +144,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.3.exe
-            deliverables/HOCO-KeepAlive-1.0.3.exe
-            deliverables/HOCO-KeepAlive-Portable-1.0.3-win-x64.zip
-          name: "HOCO KeepAlive v1.0.3 (Windows 11 / 10 Setup)"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.3' }}
+            installer-output/HOCO-KeepAlive-Setup-1.0.4.exe
+            deliverables/HOCO-KeepAlive-1.0.4.exe
+            deliverables/HOCO-KeepAlive-Portable-1.0.4-win-x64.zip
+          name: "HOCO KeepAlive v1.0.4 (Windows 11 / 10 Setup)"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.4' }}
           draft: false
           prerelease: false
           generate_release_notes: true
