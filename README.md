@@ -52,6 +52,7 @@ Many Bluetooth speakers—including the HOCO HC22—incorporate aggressive power
 - **System Tray Native**: Runs silently in the Windows taskbar notification area; double-click the tray icon to open the status dashboard.
 - **Audio Output Selection**: Easily select the HOCO HC22 or any connected Windows playback device.
 - **Graceful Error Recovery**: Detects when devices disconnect or become unavailable without crashing or looping indefinitely.
+- **Call-Friendly Audio Handoff**: When foreground playback is detected, releases the keep-alive output handle instead of leaving it paused, giving Windows a better chance to switch a Bluetooth headset/speakerphone to its hands-free profile for microphone calls; it resumes after playback becomes quiet.
 - **Optional Windows Sign-in Startup**: Start automatically when logging into Windows via clean user registry configuration.
 - **Single Instance Enforcement**: Protects against running multiple conflicting instances.
 
@@ -135,6 +136,7 @@ To have HOCO KeepAlive launch automatically when you sign in to Windows:
 
 ## Known Limitations & Disclaimers
 
+- **Bluetooth microphone compatibility:** Classic Bluetooth devices commonly cannot provide high-quality stereo A2DP playback and the hands-free microphone profile at the same time. HOCO KeepAlive now releases its playback handle when other output audio is detected, but Windows/driver/device profile switching still controls microphone availability. If a WhatsApp call still reports no microphone, stop Keep-Alive for the call and select the device's **Hands-Free / Headset** microphone in Windows and WhatsApp. This app does not capture, route, or modify microphone audio.
 - **Firmware Hard Sleeps**: Some Bluetooth speaker models or firmware revisions have strict internal power-off timers that measure audio sample amplitude directly in hardware. If zero amplitude is detected for 10-15 minutes, the hardware may shut off regardless of an active connection.
 - **Physical Disconnections**: This software cannot prevent disconnects caused by low battery, excessive distance, radio frequency interference, or Windows entering Sleep / Modern Standby.
 - **No Inaudible Tone Guarantee**: This utility uses absolute zero PCM (`0x00`), which is completely silent. It does not inject ultrasonic or sub-audible dither tones that could distort your hardware.
