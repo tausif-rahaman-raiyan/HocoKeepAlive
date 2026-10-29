@@ -8,16 +8,16 @@ namespace HocoKeepAlive.UI;
 public sealed class MainForm : Form
 {
     // Design System Tokens
-    public static readonly Color BgMain = Color.FromArgb(14, 18, 32);        // #0E1220
-    public static readonly Color BgSidebar = Color.FromArgb(17, 23, 39);     // #111727
-    public static readonly Color SurfacePrimary = Color.FromArgb(23, 31, 50); // #171F32
-    public static readonly Color SurfaceSecondary = Color.FromArgb(29, 40, 64); // #1D2840
-    public static readonly Color SurfaceHover = Color.FromArgb(37, 49, 75);  // #25314B
+    public static readonly Color BgMain = Color.FromArgb(10, 10, 12);        // near-black
+    public static readonly Color BgSidebar = Color.FromArgb(7, 7, 9);     // black sidebar
+    public static readonly Color SurfacePrimary = Color.FromArgb(32, 30, 32); // charcoal card
+    public static readonly Color SurfaceSecondary = Color.FromArgb(25, 23, 25); // dark surface
+    public static readonly Color SurfaceHover = Color.FromArgb(47, 27, 34);  // red-tinted hover
     public static readonly Color TextPrimary = Color.FromArgb(245, 247, 255); // #F5F7FF
-    public static readonly Color TextSecondary = Color.FromArgb(167, 178, 200); // #A7B2C8
-    public static readonly Color TextMuted = Color.FromArgb(119, 131, 157);   // #77839D
-    public static readonly Color AccentLavender = Color.FromArgb(201, 213, 255); // #C9D5FF
-    public static readonly Color BorderColor = Color.FromArgb(43, 54, 80);     // #2B3650
+    public static readonly Color TextSecondary = Color.FromArgb(184, 178, 185); // soft gray
+    public static readonly Color TextMuted = Color.FromArgb(142, 135, 143);   // muted gray
+    public static readonly Color AccentLavender = Color.FromArgb(245, 42, 93); // neon rose accent
+    public static readonly Color BorderColor = Color.FromArgb(48, 29, 36);     // subtle red border
     public static readonly Color ColorSuccess = Color.FromArgb(74, 222, 128);   // #4ADE80
     public static readonly Color ColorWarning = Color.FromArgb(251, 191, 36);   // #FBBF24
     public static readonly Color ColorError = Color.FromArgb(251, 113, 133);    // #FB7185
@@ -53,7 +53,7 @@ public sealed class MainForm : Form
         _onExit = onExit;
 
         Icon = appIcon;
-        Text = "HOCO KeepAlive";
+        Text = "HOCO KeepAlive · Audio Dashboard";
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
         ClientSize = new Size(1100, 720);
@@ -103,7 +103,7 @@ public sealed class MainForm : Form
 
         var lblBrandSub = new Label
         {
-            Text = "Bluetooth Audio Utility · v1.0.5",
+            Text = "Bluetooth Audio Utility · v1.0.6",
             ForeColor = TextMuted,
             Font = new Font("Segoe UI", 7.8F),
             Location = new Point(63, 41),
@@ -232,7 +232,7 @@ public sealed class MainForm : Form
 
         var lblWatermarkText = new Label
         {
-            Text = "HOCO KeepAlive v1.0.5 • Developed by Tausif Rahaman Raiyan",
+            Text = "HOCO KeepAlive v1.0.6 • Developed by Tausif Rahaman Raiyan",
             ForeColor = TextMuted,
             Font = new Font("Segoe UI", 8F),
             Dock = DockStyle.Left,
@@ -439,8 +439,8 @@ public sealed class MainForm : Form
         // Title
         var lblTitle = new Label
         {
-            Text = "Overview",
-            Font = new Font("Segoe UI", 18F, FontStyle.Bold),
+            Text = "Dashboard",
+            Font = new Font("Segoe UI", 22F, FontStyle.Bold),
             ForeColor = TextPrimary,
             Location = new Point(0, curY),
             AutoSize = true
@@ -1247,7 +1247,7 @@ public sealed class MainForm : Form
         };
 
         var lblAppName = new Label { Text = "HOCO KeepAlive", Font = new Font("Segoe UI", 14F, FontStyle.Bold), ForeColor = TextPrimary, Location = new Point(20, 16), AutoSize = true };
-        var lblVer = new Label { Text = "Version 1.0.2 (Release x64) • Self-Contained Single-File", Font = new Font("Segoe UI", 9F), ForeColor = AccentLavender, Location = new Point(22, 44), AutoSize = true };
+        var lblVer = new Label { Text = "Version 1.0.6 (Release x64) • Self-Contained Single-File", Font = new Font("Segoe UI", 9F), ForeColor = AccentLavender, Location = new Point(22, 44), AutoSize = true };
 
         var lblSpecs = new Label
         {

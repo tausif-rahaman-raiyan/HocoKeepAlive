@@ -8,9 +8,9 @@
     <ApplicationIcon>assets\hoco-keepalive.ico</ApplicationIcon>
     <AssemblyName>HOCO KeepAlive</AssemblyName>
     <RootNamespace>HocoKeepAlive</RootNamespace>
-    <Version>1.0.5</Version>
-    <FileVersion>1.0.5.0</FileVersion>
-    <AssemblyVersion>1.0.5.0</AssemblyVersion>
+    <Version>1.0.6</Version>
+    <FileVersion>1.0.6.0</FileVersion>
+    <AssemblyVersion>1.0.6.0</AssemblyVersion>
     <Description>Silent Bluetooth audio keep-alive utility</Description>
     <Company>Raiyan</Company>
     <Product>HOCO KeepAlive</Product>

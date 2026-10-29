@@ -60,10 +60,10 @@ Many Bluetooth speakers—including the HOCO HC22—incorporate aggressive power
 
 ## Download & Deliverables
 
-A single sequential GitHub Actions workflow builds and packages all Windows deliverables together on each push, pull request, or manual run. Release assets are published from that same workflow when requested or when a version tag is pushed. The installer keeps the existing AppId and install directory so version 1.0.5 is designed to update the existing installation in place:
+A single sequential GitHub Actions workflow builds and packages all Windows deliverables together on each push, pull request, or manual run. Release assets are published from that same workflow when requested or when a version tag is pushed. The installer keeps the existing AppId and install directory so version 1.0.6 is designed to update the existing installation in place:
 
-1. **`HOCO-KeepAlive-Setup-1.0.5.exe`**: Clean Inno Setup installer with optional desktop shortcut and startup registration.
-2. **`HOCO-KeepAlive-Portable-1.0.5-win-x64.zip`**: Zero-install portable edition.
+1. **`HOCO-KeepAlive-Setup-1.0.6.exe`**: Clean Inno Setup installer with optional desktop shortcut and startup registration.
+2. **`HOCO-KeepAlive-Portable-1.0.6-win-x64.zip`**: Zero-install portable edition.
 3. **`HOCO KeepAlive.exe`**: Self-contained single-file executable.
 
 ### How to Download from GitHub Actions
@@ -73,13 +73,13 @@ A single sequential GitHub Actions workflow builds and packages all Windows deli
 4. Download the **`HocoKeepAlive-Windows`** artifact ZIP containing all three files.
 
 ### How to Install from a GitHub Release
-When a release tag like `v1.0.5` is published, the setup executable, portable ZIP, and standalone EXE are attached directly to the release page.
+When a release tag like `v1.0.6` is published, the setup executable, portable ZIP, and standalone EXE are attached directly to the release page.
 
 ---
 
 ## Installation & Setup
 
-1. Download **`HOCO-KeepAlive-Setup-1.0.5.exe`**.
+1. Download **`HOCO-KeepAlive-Setup-1.0.6.exe`**.
 2. Run the installer (runs with standard user privileges; no administrator rights required).
 3. Follow the wizard prompts to optionally add a desktop shortcut or enable launch on Windows sign-in.
 4. Click **Finish** to launch HOCO KeepAlive.
@@ -89,7 +89,7 @@ When a release tag like `v1.0.5` is published, the setup executable, portable ZI
 ## Portable Mode
 
 If you prefer not to install:
-1. Download **`HOCO-KeepAlive-Portable-1.0.5-win-x64.zip`**.
+1. Download **`HOCO-KeepAlive-Portable-1.0.6-win-x64.zip`**.
 2. Extract the ZIP into any user folder (e.g., `Documents\HOCO KeepAlive`).
 3. Double-click **`HOCO KeepAlive.exe`**.
 4. Settings are stored in your per-user `%APPDATA%\HocoKeepAlive\settings.json` file.

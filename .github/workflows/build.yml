@@ -109,7 +109,7 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "installer.iss"
 
-          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.5.exe"
+          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.6.exe"
           if (!(Test-Path $setupExe)) {
             throw "Setup EXE was not produced at $setupExe."
           }
@@ -119,36 +119,22 @@ jobs:
           }
           Write-Host "SUCCESS: Windows Setup EXE generated at $setupExe ($($item.Length) bytes)."
 
-      - name: 10. Create portable ZIP and standalone EXE package
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "deliverables" | Out-Null
-          Copy-Item "publish/HOCO KeepAlive.exe" "deliverables/HOCO-KeepAlive-1.0.5.exe"
-          Compress-Archive -Path "publish/*" -DestinationPath "deliverables/HOCO-KeepAlive-Portable-1.0.5-win-x64.zip" -Force
-          if (!(Test-Path "deliverables/HOCO-KeepAlive-1.0.5.exe")) { throw "Standalone EXE missing." }
-          if (!(Test-Path "deliverables/HOCO-KeepAlive-Portable-1.0.5-win-x64.zip")) { throw "Portable ZIP missing." }
-
-      - name: 11. Upload all Windows deliverables
+      - name: 10. Upload the Setup EXE only
         uses: actions/upload-artifact@v4
         with:
-          name: HOCO-KeepAlive-Windows-v1.0.5
+          name: HOCO-KeepAlive-Setup-v1.0.6
           path: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.5.exe
-            deliverables/HOCO-KeepAlive-1.0.5.exe
-            deliverables/HOCO-KeepAlive-Portable-1.0.5-win-x64.zip
+            installer-output/HOCO-KeepAlive-Setup-1.0.6.exe
           if-no-files-found: error
           retention-days: 90
 
-      - name: 12. Create or update GitHub Release with all Windows deliverables
+      - name: 11. Create or update GitHub Release with Setup EXE only
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.5.exe
-            deliverables/HOCO-KeepAlive-1.0.5.exe
-            deliverables/HOCO-KeepAlive-Portable-1.0.5-win-x64.zip
-          name: "HOCO KeepAlive v1.0.5 (Windows 11 / 10 Setup)"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.5' }}
+          files: installer-output/HOCO-KeepAlive-Setup-1.0.6.exe
+          name: "HOCO KeepAlive v1.0.6 · Windows Setup"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.6' }}
           draft: false
           prerelease: false
           generate_release_notes: true
