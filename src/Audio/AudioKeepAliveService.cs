@@ -260,8 +260,13 @@ public sealed class AudioKeepAliveService : IDisposable
                 _startedAt = DateTime.UtcNow;
                 _lastError = null;
                 _lastOtherAudioDetectedUtc = DateTime.UtcNow;
-                LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio currently active (peak {initialPeak:F3}). Placing keep-alive in standby.");
-                SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Keep-Alive standing by in background.");
+                // Release the playback handle completely while another app is using audio.
+                // This is important for Bluetooth headsets/speakerphones: holding a WaveOut
+                // endpoint open can interfere with Windows switching to the hands-free profile
+                // required by calls and microphone capture.
+                CleanupOutput();
+                LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio currently active (peak {initialPeak:F3}). Releasing keep-alive endpoint and entering standby.");
+                SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Playback endpoint released while audio is active.");
             }
             else
             {
@@ -369,14 +374,12 @@ public sealed class AudioKeepAliveService : IDisposable
 
                 if (_state == AudioEngineState.Running)
                 {
-                    try
-                    {
-                        _output?.Pause();
-                    }
-                    catch { }
+                    // Do not merely Pause(): dispose the output handle so Windows can
+                    // switch Bluetooth devices to the hands-free profile during calls.
+                    CleanupOutput();
 
-                    LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio playing (peak: {peak:F3}). Paused background silent stream.");
-                    SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Background silent stream paused.");
+                    LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio playing (peak: {peak:F3}). Released keep-alive endpoint for foreground audio/calls.");
+                    SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Keep-alive endpoint released; it will resume after playback becomes quiet.");
                 }
             }
             else
