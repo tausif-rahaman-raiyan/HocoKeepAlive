@@ -27,6 +27,7 @@ public sealed class MainForm : Form
         foreach(string t in new[]{"Dashboard","Audio Device","Keep-Alive Engine","Settings","About & Updates"}){var b=Btn("   "+t,false);b.Tag=t;b.Width=188;b.Height=46;b.Margin=new Padding(0,0,0,8);b.TextAlign=ContentAlignment.MiddleLeft;b.Click+=(_,_)=>Navigate(t);nav.Controls.Add(b);}
         var foot=new Panel{Dock=DockStyle.Fill,BackColor=Side}; foot.Controls.Add(new Label{Text="●  Windows desktop app",Dock=DockStyle.Top,Height=27,ForeColor=Color.FromArgb(91,220,160),TextAlign=ContentAlignment.MiddleLeft}); foot.Controls.Add(new Label{Text="HOCO KeepAlive · v1.0.7",Dock=DockStyle.Bottom,Height=23,ForeColor=Muted,TextAlign=ContentAlignment.MiddleLeft}); l.Controls.Add(brand,0,0);l.Controls.Add(nav,0,1);l.Controls.Add(foot,0,2);sidebar.Controls.Add(l);
     }
+    public void NavigateTo(string p) => Navigate(p);
     void Navigate(string p){page=p;foreach(Control c in sidebar.Controls)if(c is TableLayoutPanel t&&t.GetControlFromPosition(0,1) is FlowLayoutPanel nav)foreach(Control n in nav.Controls)if(n is Button b){bool active=(string?)b.Tag==p;b.BackColor=active?Color.FromArgb(49,20,31):Side;b.ForeColor=active?Pink2:Muted;b.FlatAppearance.BorderColor=active?Line:Side;}
         _pageHost.Controls.Clear();stateLabel=null;toggle=null;
         if(p=="Dashboard")Dashboard();else if(p=="Audio Device")DevicePage();else if(p=="Keep-Alive Engine")EnginePage();else if(p=="Settings")SettingsPage();else AboutPage();
