@@ -54,6 +54,8 @@ public sealed class MainForm : Form
 
         Icon = appIcon;
         Text = "HOCO KeepAlive";
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);
         ClientSize = new Size(1100, 720);
         MinimumSize = new Size(880, 580);
         StartPosition = FormStartPosition.CenterScreen;
@@ -101,7 +103,7 @@ public sealed class MainForm : Form
 
         var lblBrandSub = new Label
         {
-            Text = "Bluetooth Audio Utility · v1.0.2",
+            Text = "Bluetooth Audio Utility · v1.0.5",
             ForeColor = TextMuted,
             Font = new Font("Segoe UI", 7.8F),
             Location = new Point(63, 41),
@@ -230,7 +232,7 @@ public sealed class MainForm : Form
 
         var lblWatermarkText = new Label
         {
-            Text = "HOCO KeepAlive v1.0.2 • Developed by Tausif Rahaman Raiyan",
+            Text = "HOCO KeepAlive v1.0.5 • Developed by Tausif Rahaman Raiyan",
             ForeColor = TextMuted,
             Font = new Font("Segoe UI", 8F),
             Dock = DockStyle.Left,
