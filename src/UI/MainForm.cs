@@ -337,10 +337,12 @@ public sealed class MainForm : Form
     {
         // Smooth responsive container centering:
         // Capped at 1040px max width (matching web max-w-5xl), centered horizontally in full-screen/maximized mode
-        int available = _contentContainer.ClientSize.Width - 64;
-        if (available < 600) available = 600;
+        // Never force a minimum width larger than the actual viewport: doing so
+        // caused cards to overlap and clipped content at smaller window sizes.
+        int viewport = Math.Max(320, _contentContainer.ClientSize.Width);
+        int available = Math.Max(280, viewport - 56);
         int width = Math.Min(1040, available);
-        int left = Math.Max(28, (_contentContainer.ClientSize.Width - width) / 2);
+        int left = Math.Max(12, (viewport - width) / 2);
         return (width, left);
     }
 
