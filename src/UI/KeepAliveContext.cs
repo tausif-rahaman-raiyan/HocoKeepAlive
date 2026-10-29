@@ -61,7 +61,8 @@ public sealed class KeepAliveContext : ApplicationContext
         };
 
         // Double click toggles keep-alive stream
-        _tray.DoubleClick += (_, _) => _audioService.Toggle();
+        _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowPage("Dashboard"); };
+        _tray.DoubleClick += (_, _) => ShowPage("Dashboard");
 
         _audioService.StateChanged += OnAudioStateChanged;
 
@@ -192,7 +193,7 @@ public sealed class KeepAliveContext : ApplicationContext
         _tray.Visible = false;
         _tray.Dispose();
 
-        _mainForm?.Close();
+        _mainForm?.CloseForExit();
         _mainForm?.Dispose();
 
         Application.Exit();

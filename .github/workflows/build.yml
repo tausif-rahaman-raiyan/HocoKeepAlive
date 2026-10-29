@@ -1,4 +1,4 @@
-name: HOCO KeepAlive — Single Windows Build & Release
+name: HOCO KeepAlive — Full Windows App Build
 
 on:
   push:
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   build-setup:
-    name: Build HOCO KeepAlive Windows 10/11 x64 Deliverables
+    name: Build HOCO KeepAlive Windows 10/11 x64 Setup
     runs-on: windows-latest
     timeout-minutes: 25
 
@@ -41,12 +41,7 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: 3. Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: 4. Generate multi-resolution icon
+      - name: 3. Generate multi-resolution icon
         shell: pwsh
         run: |
           ./scripts/Generate-Icon.ps1
@@ -109,7 +104,7 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "installer.iss"
 
-          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.6.exe"
+          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.7.exe"
           if (!(Test-Path $setupExe)) {
             throw "Setup EXE was not produced at $setupExe."
           }
@@ -122,9 +117,9 @@ jobs:
       - name: 10. Upload the Setup EXE only
         uses: actions/upload-artifact@v4
         with:
-          name: HOCO-KeepAlive-Setup-v1.0.6
+          name: HOCO-KeepAlive-Setup-v1.0.7
           path: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.6.exe
+            installer-output/HOCO-KeepAlive-Setup-1.0.7.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -132,9 +127,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
         uses: softprops/action-gh-release@v2
         with:
-          files: installer-output/HOCO-KeepAlive-Setup-1.0.6.exe
-          name: "HOCO KeepAlive v1.0.6 · Windows Setup"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.6' }}
+          files: installer-output/HOCO-KeepAlive-Setup-1.0.7.exe
+          name: "HOCO KeepAlive v1.0.7 · Windows Setup"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.7' }}
           draft: false
           prerelease: false
           generate_release_notes: true
