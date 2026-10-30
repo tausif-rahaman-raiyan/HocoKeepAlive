@@ -1,4 +1,4 @@
-name: HOCO KeepAlive — Full Windows App Build
+name: Keep Alive — Single Windows Build & Release
 
 on:
   push:
@@ -23,25 +23,45 @@ permissions:
   contents: write
 
 concurrency:
-  group: hoco-keepalive-setup-${{ github.ref }}
-  cancel-in-progress: true
+  group: keep-alive-setup-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ACTIONS_RUNNER_FORCE_NODE24: "true"
 
 jobs:
   build-setup:
-    name: Build HOCO KeepAlive Windows 10/11 x64 Setup
+    name: Build Keep Alive Windows 10/11 x64 Deliverables
     runs-on: windows-latest
     timeout-minutes: 25
 
     steps:
       - name: 1. Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: 2. Set up .NET 8 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v4.3.0
         with:
           dotnet-version: "8.0.x"
 
-      - name: 3. Generate multi-resolution icon
+      - name: 3. Set up Node.js
+        uses: actions/setup-node@v4.2.0
+        with:
+          node-version: "22"
+
+      - name: 4. Determine Dynamic Version Number
+        id: versioning
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -like "refs/tags/v*") {
+            $ver = "${{ github.ref_name }}".TrimStart('v','V')
+          } else {
+            $ver = "1.0.${{ github.run_number }}"
+          }
+          Write-Host "Determined Application Build Version: $ver"
+          "APP_VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 5. Generate multi-resolution icon
         shell: pwsh
         run: |
           ./scripts/Generate-Icon.ps1
@@ -51,7 +71,7 @@ jobs:
           $icon = Get-Item "assets/hoco-keepalive.ico"
           Write-Host "Application icon ready: $($icon.Length) bytes."
 
-      - name: 5. Restore NuGet packages
+      - name: 6. Restore NuGet packages
         shell: pwsh
         run: |
           dotnet restore HocoKeepAlive.csproj
@@ -59,7 +79,7 @@ jobs:
             dotnet restore tests/HocoKeepAlive.Tests/HocoKeepAlive.Tests.csproj
           }
 
-      - name: 6. Run automated test suite
+      - name: 7. Run automated test suite
         shell: pwsh
         run: |
           if (Test-Path "tests/HocoKeepAlive.Tests/HocoKeepAlive.Tests.csproj") {
@@ -68,26 +88,30 @@ jobs:
             Write-Host "Tests project not present, skipping test step."
           }
 
-      - name: 7. Publish self-contained Windows x64 binary
+      - name: 8. Publish self-contained Windows x64 binary with dynamic version
         shell: pwsh
         run: |
+          $ver = "$env:APP_VER"
           dotnet publish HocoKeepAlive.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=$ver `
+            -p:FileVersion="$ver.0" `
+            -p:AssemblyVersion="$ver.0" `
             -p:DebugType=None `
             -p:DebugSymbols=false `
             --output publish
 
-          $exe = "publish/HOCO KeepAlive.exe"
+          $exe = "publish/Keep Alive.exe"
           if (!(Test-Path $exe)) {
             throw "Application executable not found at $exe."
           }
           Write-Host "Published binary validated at $exe ($((Get-Item $exe).Length) bytes)."
 
-      - name: 8. Install Inno Setup compiler
+      - name: 9. Install Inno Setup compiler
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
@@ -97,14 +121,15 @@ jobs:
           }
           Write-Host "Inno Setup ready at $iscc"
 
-      - name: 9. Compile Windows 10/11 Setup Installer EXE
+      - name: 10. Compile Windows 10/11 Setup Installer EXE
         shell: pwsh
         run: |
+          $ver = "$env:APP_VER"
           New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "installer.iss"
+          & $iscc "/DMyAppVersion=$ver" "installer.iss"
 
-          $setupExe = "installer-output/HOCO-KeepAlive-Setup-1.0.7.exe"
+          $setupExe = "installer-output/Keep-Alive-Setup-$ver.exe"
           if (!(Test-Path $setupExe)) {
             throw "Setup EXE was not produced at $setupExe."
           }
@@ -114,22 +139,36 @@ jobs:
           }
           Write-Host "SUCCESS: Windows Setup EXE generated at $setupExe ($($item.Length) bytes)."
 
-      - name: 10. Upload the Setup EXE only
-        uses: actions/upload-artifact@v4
+      - name: 11. Create portable ZIP and standalone EXE package
+        shell: pwsh
+        run: |
+          $ver = "$env:APP_VER"
+          New-Item -ItemType Directory -Force -Path "deliverables" | Out-Null
+          Copy-Item "publish/Keep Alive.exe" "deliverables/Keep-Alive-$ver.exe"
+          Compress-Archive -Path "publish/*" -DestinationPath "deliverables/Keep-Alive-Portable-$ver-win-x64.zip" -Force
+          if (!(Test-Path "deliverables/Keep-Alive-$ver.exe")) { throw "Standalone EXE missing." }
+          if (!(Test-Path "deliverables/Keep-Alive-Portable-$ver-win-x64.zip")) { throw "Portable ZIP missing." }
+
+      - name: 12. Upload all Windows deliverables
+        uses: actions/upload-artifact@v4.6.1
         with:
-          name: HOCO-KeepAlive-Setup-v1.0.7
+          name: Keep-Alive-Windows-v${{ env.APP_VER }}
           path: |
-            installer-output/HOCO-KeepAlive-Setup-1.0.7.exe
+            installer-output/Keep-Alive-Setup-${{ env.APP_VER }}.exe
+            deliverables/Keep-Alive-${{ env.APP_VER }}.exe
+            deliverables/Keep-Alive-Portable-${{ env.APP_VER }}-win-x64.zip
           if-no-files-found: error
           retention-days: 90
 
-      - name: 11. Create or update GitHub Release with Setup EXE only
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
+      - name: 13. Auto Create/Update GitHub Release on Every Push
         uses: softprops/action-gh-release@v2
         with:
-          files: installer-output/HOCO-KeepAlive-Setup-1.0.7.exe
-          name: "HOCO KeepAlive v1.0.7 · Windows Setup"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.7' }}
+          files: |
+            installer-output/Keep-Alive-Setup-${{ env.APP_VER }}.exe
+            deliverables/Keep-Alive-${{ env.APP_VER }}.exe
+            deliverables/Keep-Alive-Portable-${{ env.APP_VER }}-win-x64.zip
+          name: "Keep Alive v${{ env.APP_VER }} (Windows 11 / 10 Setup)"
+          tag_name: "v${{ env.APP_VER }}"
           draft: false
           prerelease: false
           generate_release_notes: true

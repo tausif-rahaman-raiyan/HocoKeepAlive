@@ -6,14 +6,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>assets\hoco-keepalive.ico</ApplicationIcon>
-    <AssemblyName>HOCO KeepAlive</AssemblyName>
+    <AssemblyName>Keep Alive</AssemblyName>
     <RootNamespace>HocoKeepAlive</RootNamespace>
-    <Version>1.0.7</Version>
-    <FileVersion>1.0.7.0</FileVersion>
-    <AssemblyVersion>1.0.7.0</AssemblyVersion>
+    <Version>1.0.4</Version>
+    <FileVersion>1.0.4.0</FileVersion>
+    <AssemblyVersion>1.0.4.0</AssemblyVersion>
     <Description>Silent Bluetooth audio keep-alive utility</Description>
     <Company>Raiyan</Company>
-    <Product>HOCO KeepAlive</Product>
+    <Product>Keep Alive</Product>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;node_modules\**;dist\**;web\**</DefaultItemExcludes>
   </PropertyGroup>
 

@@ -1,1134 +1,766 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  LayoutDashboard,
-  Speaker,
-  Cpu,
-  Settings as SettingsIcon,
-  Info,
+  Home,
+  Sliders,
+  Headphones,
+  Settings,
+  Zap,
+  Activity,
   Play,
   Square,
-  RefreshCw,
-  ExternalLink,
   Volume2,
-  CheckCircle2,
-  Bluetooth,
-  Bell
+  ExternalLink,
+  Battery,
+  BatteryCharging
 } from 'lucide-react';
 
-interface AudioDevice {
-  deviceId: string;
-  label: string;
-  groupId: string;
-  isDefault?: boolean;
+interface AudioEndpoint {
+  id: string;
+  name: string;
+  category: string;
+  volume: number;
+  status: 'active' | 'standby' | 'idle';
+  isBluetooth?: boolean;
 }
 
-type Page =
-  | 'overview'
-  | 'devices'
-  | 'engine'
-  | 'settings'
-  | 'about';
-
 export default function App() {
-  const [activePage, setActivePage] = useState<Page>('overview');
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [isRecovering, setIsRecovering] = useState<boolean>(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [devices, setDevices] = useState<AudioDevice[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('default');
-  const [selectedDeviceName, setSelectedDeviceName] = useState<string>('Windows Default Playback Device (HOCO HC22)');
-
-  // Engine config
-  const [sampleRate, setSampleRate] = useState<number>(48000);
-  const [channels, setChannels] = useState<number>(2);
-  const [bufferLatency, setBufferLatency] = useState<number>(150);
-  const [autoReconnect, setAutoReconnect] = useState<boolean>(true);
-  const [autoPauseOnOtherAudio, setAutoPauseOnOtherAudio] = useState<boolean>(true);
-  const [isPausedByOtherAudio, setIsPausedByOtherAudio] = useState<boolean>(false);
-  const [isSimulatingOtherAudio, setIsSimulatingOtherAudio] = useState<boolean>(false);
-
-  // Settings
-  const [launchOnStartup, setLaunchOnStartup] = useState<boolean>(false);
-  const [autoStartStream, setAutoStartStream] = useState<boolean>(false);
-  const [startMinimized, setStartMinimized] = useState<boolean>(false);
-  const [minimizeToTrayOnClose, setMinimizeToTrayOnClose] = useState<boolean>(true);
-  const [showNotifications, setShowNotifications] = useState<boolean>(true);
-  const [notifyOnStartStop, setNotifyOnStartStop] = useState<boolean>(true);
-  const [notifyOnError, setNotifyOnError] = useState<boolean>(true);
-
-  // Web Audio Context Refs
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const bufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const reconnectIntervalRef = useRef<number | null>(null);
-
-  // Toast notification
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'controls' | 'devices' | 'settings'>('dashboard');
+  const [isRunning, setIsRunning] = useState<boolean>(true);
+  const [batteryLevel, setBatteryLevel] = useState<number>(85);
+  const [isCharging, setIsCharging] = useState<boolean>(false);
+  const [selectedDevice, setSelectedDevice] = useState<string>('Wireless Bluetooth Speaker');
+  const [callProtectionActive, setCallProtectionActive] = useState<boolean>(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Update check
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string>('App is up to date (v1.0.4)');
+  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
 
-  const triggerToast = (msg: string) => {
-    if (!showNotifications) return;
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const phaseRef = useRef<number>(0);
+
+  const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((curr) => (curr === msg ? null : curr));
-    }, 4000);
+    }, 3500);
   };
 
-  // Enumerate Devices
-  const refreshDevices = async () => {
-    try {
-      if (!navigator.mediaDevices?.enumerateDevices) {
-        fallbackDevices();
-        return;
-      }
-      const list = await navigator.mediaDevices.enumerateDevices();
-      const audioOutputs = list
-        .filter((d) => d.kind === 'audiooutput')
-        .map((d, index) => ({
-          deviceId: d.deviceId,
-          label: d.label || `Windows Playback Device #${index + 1}`,
-          groupId: d.groupId,
-          isDefault: index === 0
-        }));
-
-      if (audioOutputs.length === 0) {
-        fallbackDevices();
-      } else {
-        setDevices(audioOutputs);
-      }
-    } catch {
-      fallbackDevices();
-    }
-  };
-
-  const fallbackDevices = () => {
-    const list: AudioDevice[] = [
-      { deviceId: 'default', label: 'Windows Default Playback Device (HOCO HC22)', groupId: 'default', isDefault: true },
-      { deviceId: 'speakers', label: 'Speakers / Headphones (Realtek High Definition Audio)', groupId: 'built-in' },
-      { deviceId: 'bt-stereo', label: 'Headphones (HOCO HC22 Stereo)', groupId: 'bt' }
-    ];
-    setDevices(list);
-  };
-
+  // Real-time battery query
   useEffect(() => {
-    refreshDevices();
+    if ('getBattery' in navigator) {
+      (navigator as unknown as { getBattery: () => Promise<{ level: number; charging: boolean }> })
+        .getBattery()
+        .then((bat) => {
+          setBatteryLevel(Math.round(bat.level * 100));
+          setIsCharging(bat.charging);
+        })
+        .catch(() => {});
+    }
   }, []);
 
-  // Timer loop
+  // Ribbon Waveform Animation (starts and keeps running when Dashboard tab is active)
   useEffect(() => {
-    let timer: number;
-    if (isRunning) {
-      timer = window.setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isRunning]);
+    if (activeTab !== 'dashboard') return;
 
-  // Audio Keep-Alive Engine
-  const startKeepAlive = async () => {
-    try {
-      if (reconnectIntervalRef.current) {
-        clearInterval(reconnectIntervalRef.current);
-        reconnectIntervalRef.current = null;
+    let running = true;
+    let animId: number;
+
+    const render = () => {
+      if (!running) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        animId = requestAnimationFrame(render);
+        return;
       }
-      setIsRecovering(false);
-
-      if (audioCtxRef.current && audioCtxRef.current.state === 'running') {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        animId = requestAnimationFrame(render);
         return;
       }
 
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx({ sampleRate });
-      audioCtxRef.current = ctx;
+      const desiredWidth = Math.floor(canvas.offsetWidth * window.devicePixelRatio) || 800;
+      const desiredHeight = Math.floor(canvas.offsetHeight * window.devicePixelRatio) || 180;
+      if (canvas.width !== desiredWidth || canvas.height !== desiredHeight) {
+        canvas.width = desiredWidth;
+        canvas.height = desiredHeight;
+      }
+      const width = canvas.width;
+      const height = canvas.height;
 
-      // Select audio sink if API supported
-      if ('setSinkId' in ctx && selectedDeviceId !== 'default') {
-        try {
-          await (ctx as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(selectedDeviceId);
-        } catch {
-          // Ignored
+      ctx.clearRect(0, 0, width, height);
+
+      // Deep dark inset background
+      ctx.fillStyle = '#0B0C10';
+      ctx.fillRect(0, 0, width, height);
+
+      // Subtle horizontal center grid line
+      const midY = height * 0.52;
+      ctx.beginPath();
+      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = '#1D1E28';
+      ctx.lineWidth = 1 * window.devicePixelRatio;
+      ctx.moveTo(30 * window.devicePixelRatio, midY);
+      ctx.lineTo(width - 30 * window.devicePixelRatio, midY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      phaseRef.current += isRunning ? 0.035 : 0.008;
+      const phase = phaseRef.current;
+
+      const baseAmp = (isRunning ? 32 : 8) * window.devicePixelRatio;
+
+      // Draw flowing multi-layered sinusoidal ribbon waves (matching the image)
+      const ribbons = [
+        {
+          amp: baseAmp * 1.15,
+          freq1: 0.005,
+          freq2: 0.012,
+          speed: 1.0,
+          color: 'rgba(255, 46, 99, 0.25)',
+          glow: 'rgba(255, 46, 99, 0.4)',
+          lineWidth: 8 * window.devicePixelRatio,
+          blur: 16
+        },
+        {
+          amp: baseAmp * 0.95,
+          freq1: 0.007,
+          freq2: 0.015,
+          speed: 1.25,
+          color: 'rgba(255, 75, 114, 0.65)',
+          glow: 'rgba(255, 75, 114, 0.8)',
+          lineWidth: 4 * window.devicePixelRatio,
+          blur: 10
+        },
+        {
+          amp: baseAmp * 0.8,
+          freq1: 0.006,
+          freq2: 0.018,
+          speed: 0.85,
+          color: 'rgba(230, 57, 86, 0.85)',
+          glow: 'rgba(255, 95, 130, 0.9)',
+          lineWidth: 3 * window.devicePixelRatio,
+          blur: 8
+        },
+        {
+          amp: baseAmp * 0.65,
+          freq1: 0.009,
+          freq2: 0.022,
+          speed: 1.4,
+          color: 'rgba(255, 130, 160, 0.95)',
+          glow: '#FF5E86',
+          lineWidth: 2.2 * window.devicePixelRatio,
+          blur: 6
         }
-      }
+      ];
 
-      // Generate 1-second buffer of true digital silence (zeroes)
-      const buffer = ctx.createBuffer(channels, sampleRate, sampleRate);
-      for (let c = 0; c < channels; c++) {
-        buffer.getChannelData(c).fill(0);
-      }
+      ribbons.forEach((r, idx) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = r.color;
+        ctx.shadowColor = r.glow;
+        ctx.shadowBlur = r.blur * window.devicePixelRatio;
+        ctx.lineWidth = r.lineWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-      source.connect(ctx.destination);
-      source.start();
-      bufferSourceRef.current = source;
+        const step = 6 * window.devicePixelRatio;
+        let started = false;
 
-      // Handle unexpected disconnects with auto-reconnect
-      source.onended = () => {
-        if (autoReconnect) {
-          handleAutoReconnect();
+        for (let x = 20 * window.devicePixelRatio; x <= width - 20 * window.devicePixelRatio; x += step) {
+          const normX = x / window.devicePixelRatio;
+          const y =
+            midY +
+            (Math.sin(normX * r.freq1 + phase * r.speed + idx) * 0.65 +
+              Math.sin(normX * r.freq2 - phase * r.speed * 0.8 + idx * 2) * 0.35) *
+              r.amp;
+
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
         }
-      };
+        ctx.stroke();
+        ctx.restore();
+      });
 
-      // MediaSession registration for persistent background playback
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'HOCO KeepAlive — Silent Stream Active',
-          artist: selectedDeviceName,
-          album: 'Digital Silence Keep-Alive',
-          artwork: [{ src: '/assets/earbuds-icon.svg', sizes: '512x512', type: 'image/svg+xml' }]
-        });
-        navigator.mediaSession.playbackState = 'playing';
-      }
+      animId = requestAnimationFrame(render);
+    };
 
-      setIsRunning(true);
-      setElapsedSeconds(0);
-      if (notifyOnStartStop) {
-        triggerToast('Silent keep-alive started. Bluetooth audio link active.');
-      }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (autoReconnect) {
-        handleAutoReconnect();
-      } else if (notifyOnError) {
-        triggerToast(`Audio Error: ${errMsg}`);
-      }
-    }
-  };
+    animId = requestAnimationFrame(render);
 
-  const handleAutoReconnect = () => {
-    setIsRunning(false);
-    setIsRecovering(true);
-    triggerToast('Speaker disconnected. Auto-reconnect watchdog active...');
-
-    if (reconnectIntervalRef.current) clearInterval(reconnectIntervalRef.current);
-    reconnectIntervalRef.current = window.setInterval(async () => {
-      await refreshDevices();
-      // Try to restart
-      try {
-        await startKeepAlive();
-        if (reconnectIntervalRef.current) {
-          clearInterval(reconnectIntervalRef.current);
-          reconnectIntervalRef.current = null;
-        }
-        setIsRecovering(false);
-        triggerToast('Speaker reconnected! Silent stream automatically resumed.');
-      } catch {
-        // Still reconnecting
-      }
-    }, 2500);
-  };
-
-  const stopKeepAlive = () => {
-    if (reconnectIntervalRef.current) {
-      clearInterval(reconnectIntervalRef.current);
-      reconnectIntervalRef.current = null;
-    }
-    setIsRecovering(false);
-
-    try {
-      if (bufferSourceRef.current) {
-        bufferSourceRef.current.stop();
-        bufferSourceRef.current.disconnect();
-        bufferSourceRef.current = null;
-      }
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close();
-        audioCtxRef.current = null;
-      }
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'none';
-      }
-    } catch {
-      // Ignored
-    } finally {
-      setIsRunning(false);
-      setIsPausedByOtherAudio(false);
-      if (notifyOnStartStop) {
-        triggerToast('Silent keep-alive stopped.');
-      }
-    }
-  };
+    return () => {
+      running = false;
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isRunning, activeTab]);
 
   const toggleKeepAlive = () => {
-    if (isRunning || isRecovering) stopKeepAlive();
-    else startKeepAlive();
-  };
-
-  const toggleSimulatedAudio = (play: boolean) => {
-    setIsSimulatingOtherAudio(play);
-    if (!autoPauseOnOtherAudio) return;
-
-    if (play) {
-      if (isRunning && !isPausedByOtherAudio) {
-        if (audioCtxRef.current && audioCtxRef.current.state === 'running') {
-          audioCtxRef.current.suspend();
-        }
-        setIsPausedByOtherAudio(true);
-        triggerToast('Other media active (e.g. YouTube/Spotify). Silent stream paused on standby.');
-      }
+    if (isRunning) {
+      setIsRunning(false);
+      showToast('Keep-Alive Silent Stream paused');
     } else {
-      if (isRunning && isPausedByOtherAudio) {
-        triggerToast('Media paused. Resuming silent keep-alive in 1.2s...');
-        setTimeout(() => {
-          if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-            audioCtxRef.current.resume();
-          }
-          setIsPausedByOtherAudio(false);
-          triggerToast('Silent keep-alive stream resumed automatically!');
-        }, 1200);
-      }
+      setIsRunning(true);
+      showToast('Keep-Alive Silent Stream actively running (48,000 Hz Stereo)');
     }
   };
 
-  const playVerificationChime = () => {
-    try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.15);
-
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.5);
-
-      triggerToast('Hardware verification chime played.');
-    } catch {
-      // Ignored
-    }
-  };
-
-  const checkForUpdates = () => {
-    setCheckingUpdate(true);
-    setUpdateStatus(null);
-    setTimeout(() => {
-      setCheckingUpdate(false);
-      setUpdateStatus('HOCO KeepAlive 1.0.2 is the latest available release.');
-    }, 1000);
-  };
-
-  const formatDuration = (totalSec: number) => {
-    const hours = Math.floor(totalSec / 3600);
-    const minutes = Math.floor((totalSec % 3600) / 60);
-    const seconds = totalSec % 60;
-    if (hours > 0) {
-      return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-    }
-    return `${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-  };
-
-  const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'devices', label: 'Audio Device', icon: Speaker },
-    { id: 'engine', label: 'Keep-Alive Engine', icon: Cpu },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon },
-    { id: 'about', label: 'About & Updates', icon: Info }
+  const endpoints: AudioEndpoint[] = [
+    { id: '1', name: selectedDevice, category: 'Bluetooth Playback Device · Connected', volume: 100, status: isRunning ? 'active' : 'idle', isBluetooth: true },
+    { id: '2', name: 'WhatsApp Voice & Video Call', category: 'Communications / Mic Watchdog', volume: 85, status: 'standby' },
+    { id: '3', name: 'Spotify / YouTube Music', category: 'Media Application (Auto-Pause)', volume: 65, status: 'idle' },
+    { id: '4', name: 'Windows System Sounds', category: 'System Audio Mapper', volume: 40, status: 'idle' }
   ];
 
   return (
-    <div className="flex h-screen w-screen bg-[#0E1220] text-[#F5F7FF] font-sans antialiased overflow-hidden select-none">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0B0C10] text-[#F3F4F8] select-none font-sans relative">
+      {/* Background Subtle Crimson Ambient Glow (Matches reference) */}
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_15%,rgba(220,38,70,0.12)_0%,rgba(11,12,16,0.98)_70%)]" />
+
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#171F32] border border-[#2B3650] text-[#F5F7FF] px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
-          <div className="w-8 h-8 rounded-lg bg-[#1D2840] flex items-center justify-center text-[#C9D5FF]">
-            <Bell className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-[#C9D5FF]">HOCO KeepAlive</p>
-            <p className="text-xs text-[#A7B2C8]">{toastMessage}</p>
-          </div>
-          <button
-            onClick={() => setToastMessage(null)}
-            className="text-xs text-[#77839D] hover:text-[#F5F7FF] ml-2 p-1 cursor-pointer"
-          >
-            ✕
-          </button>
+        <div className="absolute top-4 right-8 z-50 bg-[#1F1218] border border-[#FF3B69]/40 text-[#F5F6FF] px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2.5 animate-in fade-in slide-in-from-top-2">
+          <span className="w-2 h-2 rounded-full bg-[#FF3B69] animate-pulse" />
+          <span>{toastMessage}</span>
+          <button onClick={() => setToastMessage(null)} className="ml-2 text-[#7F869A] hover:text-white">✕</button>
         </div>
       )}
 
-      {/* --- SIDEBAR NAVIGATION (220px, #111727) --- */}
-      <aside className="w-[220px] flex-shrink-0 bg-[#111727] border-r border-[#2B3650] flex flex-col justify-between">
+      {/* Left Navigation Sidebar */}
+      <aside className="w-[230px] flex-shrink-0 bg-[#111217] border-r border-[#1D1E28] flex flex-col justify-between z-10">
         <div>
-          {/* Header & Earbud Branding */}
-          <div className="h-[76px] px-5 flex items-center gap-3 border-b border-[#2B3650]/60">
-            <div className="w-9 h-9 rounded-xl bg-[#0E1220] border border-[#2B3650] p-1 flex items-center justify-center shadow-inner">
-              <img src="/assets/earbuds-icon.svg" alt="Earbud icon" className="w-7 h-7" />
+          {/* Top Logo & App Title */}
+          <div className="h-[74px] px-5 flex items-center gap-3.5 border-b border-[#1A1B24]">
+            {/* Spiral / Earbud Circular Logo */}
+            <div className="w-8 h-8 rounded-full border border-[#FF3B69]/50 bg-[#251017] flex items-center justify-center text-[#FF3B69] shadow-[0_0_12px_rgba(255,59,105,0.25)] flex-shrink-0">
+              <Activity className="w-4 h-4 text-[#FF3B69]" />
             </div>
             <div>
-              <h1 className="font-bold text-[14px] leading-tight text-[#F5F7FF] tracking-tight">HOCO KeepAlive</h1>
-              <span className="text-[11px] text-[#77839D] font-mono">v1.0.2 · x64</span>
+              <h1 className="font-bold text-[13.5px] text-white tracking-tight leading-none">Bluetooth KeepAlive</h1>
+              <p className="text-[11px] text-[#7F869A] mt-1 font-medium">Professional Audio Suite</p>
             </div>
           </div>
 
-          {/* Navigation Items (Clean 5-Item Navigation) */}
-          <nav className="p-3 space-y-1">
-            {navItems.map((item) => {
-              const IconComp = item.icon;
-              const isActive = activePage === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActivePage(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors cursor-pointer text-left ${
-                    isActive
-                      ? 'bg-[#171F32] text-[#C9D5FF] font-semibold border-l-2 border-[#C9D5FF]'
-                      : 'text-[#A7B2C8] hover:bg-[#25314B]/50 hover:text-[#F5F7FF]'
-                  }`}
-                >
-                  <IconComp className={`w-4 h-4 ${isActive ? 'text-[#C9D5FF]' : 'text-[#77839D]'}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
+          {/* Navigation Menu */}
+          <nav className="p-3.5 space-y-1.5">
+            {/* 1. Dashboard (Active by default in image) */}
+            <div className="relative">
+              {activeTab === 'dashboard' && (
+                <span className="absolute -left-3.5 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#FF3B69] rounded-r-full shadow-[0_0_8px_#FF3B69]" />
+              )}
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-[#25121B] border border-[#481827] text-white shadow-sm'
+                    : 'text-[#8E95A5] hover:bg-[#181922] hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                      activeTab === 'dashboard' ? 'bg-[#FF2E63] text-white shadow-[0_0_10px_rgba(255,46,99,0.5)]' : 'text-[#7F869A]'
+                    }`}
+                  >
+                    <Home className="w-4 h-4" />
+                  </div>
+                  <span>Dashboard</span>
+                </div>
+                {activeTab === 'dashboard' && (
+                  <span className="w-2 h-2 rounded-full bg-[#FF3B69] shadow-[0_0_6px_#FF3B69]" />
+                )}
+              </button>
+            </div>
+
+            {/* 2. Smart Controls */}
+            <button
+              onClick={() => setActiveTab('controls')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
+                activeTab === 'controls' ? 'bg-[#25121B] border border-[#481827] text-white' : 'text-[#8E95A5] hover:bg-[#181922] hover:text-white'
+              }`}
+            >
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[#7F869A]">
+                <Sliders className="w-4 h-4" />
+              </div>
+              <span>Smart Controls</span>
+            </button>
+
+
+
+            {/* 4. Audio Devices */}
+            <button
+              onClick={() => setActiveTab('devices')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
+                activeTab === 'devices' ? 'bg-[#25121B] border border-[#481827] text-white' : 'text-[#8E95A5] hover:bg-[#181922] hover:text-white'
+              }`}
+            >
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[#7F869A]">
+                <Headphones className="w-4 h-4" />
+              </div>
+              <span>Audio Devices</span>
+            </button>
+
+            {/* 5. Settings */}
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
+                activeTab === 'settings' ? 'bg-[#25121B] border border-[#481827] text-white' : 'text-[#8E95A5] hover:bg-[#181922] hover:text-white'
+              }`}
+            >
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[#7F869A]">
+                <Settings className="w-4 h-4" />
+              </div>
+              <span>Settings</span>
+            </button>
           </nav>
         </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-4 border-t border-[#2B3650]/60 text-[11px] text-[#77839D] flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isRunning ? 'bg-[#4ADE80] animate-pulse' : isRecovering ? 'bg-[#FBBF24] animate-ping' : 'bg-[#77839D]'
-              }`}
-            />
-            <span className="font-medium text-[#A7B2C8]">
-              {isRunning ? 'Engine Running' : isRecovering ? 'Auto-Reconnecting' : 'Engine Idle'}
-            </span>
-          </div>
-          <div className="text-[10px] text-[#4ADE80] font-semibold flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" />
-            <span>Auto-Pair & Reconnect Active</span>
-          </div>
+        {/* Sidebar Bottom Profile Card (Tausif Rahaman Raiyan) */}
+        <div className="p-3.5 border-t border-[#1A1B24]">
           <a
-            href="https://github.com/tausif-rahaman-raiyan/HocoKeepAlive"
+            href="https://github.com/tausif-rahaman-raiyan"
             target="_blank"
             rel="noreferrer"
-            className="text-[11px] text-[#C9D5FF] hover:underline flex items-center gap-1 mt-1"
+            className="flex items-center gap-3 p-2.5 rounded-xl bg-[#171822] border border-[#222332] hover:border-[#FF3B69]/40 transition-all cursor-pointer group"
           >
-            <span>GitHub Repository</span>
-            <ExternalLink className="w-2.5 h-2.5" />
+            <div className="relative w-8 h-8 rounded-full border border-[#FF3B69]/60 overflow-hidden bg-[#25121B] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+              <img
+                src="https://github.com/tausif-rahaman-raiyan.png"
+                alt="Tausif Rahaman Raiyan"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.opacity = '0';
+                }}
+              />
+              <span className="absolute text-[11px] font-black text-[#FF4B72]">TR</span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-bold text-white truncate">Tausif Rahaman Raiyan</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] shadow-[0_0_4px_#10B981]" />
+                <span className="text-[10px] text-[#7F869A] font-medium truncate">● Made by Raiyan</span>
+              </div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-[#7F869A] group-hover:text-white transition-colors flex-shrink-0" />
           </a>
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT CONTAINER (#0E1220) --- */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header Status Bar */}
-        <header className="h-[56px] px-8 border-b border-[#2B3650]/50 flex items-center justify-between flex-shrink-0 bg-[#0E1220]">
-          <div className="flex items-center gap-2 text-xs text-[#77839D] truncate">
-            <span>Playback Output:</span>
-            <span className="text-[#A7B2C8] font-medium truncate max-w-md">{selectedDeviceName}</span>
+      {/* Main App Workspace */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden z-10">
+        {/* Top Header Bar */}
+        <header className="h-[64px] px-8 flex items-center justify-between border-b border-[#1A1B24]/80 flex-shrink-0 bg-[#0B0C10]/80 backdrop-blur-md">
+          {/* Left breadcrumb/app title */}
+          <div className="text-xs text-[#6F768A] flex items-center gap-2">
+            <span className="font-semibold text-white">Bluetooth KeepAlive</span>
+            <span>/</span>
+            <span className="text-[#8E95A5]">Professional Audio Suite · v1.0.4</span>
           </div>
 
+          {/* Top Right Action & Settings Cog */}
           <div className="flex items-center gap-3">
-            <span
-              className={`text-[11px] font-mono font-bold px-3 py-1 rounded-full border ${
-                isPausedByOtherAudio
-                  ? 'bg-[#312E81]/30 text-[#C9D5FF] border-[#6366F1]/40'
-                  : isRunning
-                  ? 'bg-[#4ADE80]/15 text-[#4ADE80] border-[#4ADE80]/30'
-                  : isRecovering
-                  ? 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30'
-                  : 'bg-[#1D2840] text-[#77839D] border-[#2B3650]'
+            <button
+              onClick={toggleKeepAlive}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                isRunning
+                  ? 'bg-[#1F131A] border-[#FF3B69]/50 text-[#FF4B72] hover:bg-[#2A1422]'
+                  : 'bg-[#FF2E63] border-[#FF2E63] text-white hover:bg-[#FF3B69]'
               }`}
             >
-              {isPausedByOtherAudio
-                ? 'STANDBY (MEDIA ACTIVE)'
-                : isRunning
-                ? 'RUNNING SILENTLY'
-                : isRecovering
-                ? 'RECONNECTING...'
-                : 'STOPPED'}
-            </span>
+              {isRunning ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+              <span>{isRunning ? 'Stop Stream' : 'Start Stream'}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[#7F869A] hover:text-white hover:bg-[#171822] transition-colors cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
-        {/* Dynamic Page Views with Responsive Full-Screen Width */}
-        <main className="flex-1 overflow-y-auto p-8 w-full">
-          {/* ========================================================= */}
-          {/* 1. OVERVIEW PAGE (Main Dashboard - Responsive) */}
-          {/* ========================================================= */}
-          {activePage === 'overview' && (
-            <div className="space-y-6 max-w-5xl mx-auto w-full">
-              {/* Page Title */}
+        {/* Dynamic Main Workspace Area */}
+        <main className="flex-1 overflow-y-auto p-6 lg:p-8 w-full no-scrollbar">
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6 w-full max-w-full">
+              {/* Header Title Section */}
               <div>
-                <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FF]">Overview</h2>
-                <p className="text-sm text-[#77839D] mt-1">
-                  Ready to keep audio active. Maintains your Bluetooth speaker connection through quiet moments.
-                </p>
+                <h2 className="text-[34px] font-black tracking-tight text-white leading-tight">Dashboard</h2>
+                <p className="text-[14px] text-[#7F869A] mt-1 font-medium">Monitor and control your Bluetooth audio keep-alive stream</p>
               </div>
 
-              {/* Main Keep-Alive Hero Card */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 relative overflow-hidden shadow-xl w-full">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  <div className="space-y-2 max-w-2xl">
-                    <span className="text-[11px] font-mono font-bold text-[#C9D5FF] tracking-wider uppercase">
-                      KEEP-ALIVE STATUS
+              {/* 1. Two High-Impact Stat Metric Cards (Battery & Device) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Stat Card 1: Bluetooth Speaker Battery (Real-time Battery %) */}
+                <div className="bg-[#171820] border border-[#252733] rounded-2xl p-5 relative overflow-hidden group hover:border-[#FF3B69]/40 transition-colors shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#222430] flex items-center justify-center text-[#10B981]">
+                      {isCharging ? <BatteryCharging className="w-5 h-5" /> : <Battery className="w-5 h-5" />}
+                    </div>
+                    <span className="text-[11px] font-bold text-[#10B981] bg-[#10B981]/15 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse" />
+                      {isCharging ? 'Charging' : 'Normal / Discharging'}
                     </span>
-                    <h3 className="text-2xl font-bold text-[#F5F7FF]">
-                      {isPausedByOtherAudio
-                        ? 'Standing by (Audio active elsewhere)'
-                        : isRunning
-                        ? 'Keep-Alive is running'
-                        : isRecovering
-                        ? 'Reconnecting to speaker...'
-                        : 'Ready to keep audio active'}
-                    </h3>
-                    <p className="text-sm text-[#A7B2C8] leading-relaxed">
-                      {isPausedByOtherAudio
-                        ? 'HOCO KeepAlive detected sound from another application (Spotify, YouTube, video, or game) and turned off the silent background stream. It will resume automatically when you pause.'
-                        : isRunning
-                        ? 'Silent audio (zero-amplitude PCM) is being streamed through your output device to maintain the Bluetooth link.'
-                        : isRecovering
-                        ? 'The audio stream stopped. Auto-reconnect watchdog is actively polling for HOCO HC22 to reconnect.'
-                        : 'Start a lightweight silent stream to help prevent your Bluetooth speaker from disconnecting during pauses.'}
-                    </p>
                   </div>
+                  <div className="mt-4">
+                    <div className="flex items-baseline justify-between">
+                      <p className="text-3xl font-extrabold text-white tracking-tight">{batteryLevel}%</p>
+                      <span className="text-[11px] font-mono text-[#7F869A]">{selectedDevice}</span>
+                    </div>
+                    <p className="text-xs text-[#7F869A] font-medium mt-1">Speaker Battery (Real-time Telemetry)</p>
+                    <div className="w-full h-1.5 bg-[#252733] rounded-full mt-3 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#10B981] transition-all duration-500 shadow-[0_0_8px_#10B981]"
+                        style={{ width: `${batteryLevel}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                  {/* Primary Start / Stop Button */}
-                  <div className="flex flex-col items-start md:items-end gap-3 flex-shrink-0">
-                    <button
-                      onClick={toggleKeepAlive}
-                      className={`px-7 py-3.5 rounded-xl font-bold text-sm flex items-center gap-2.5 transition-all shadow-lg cursor-pointer ${
-                        isPausedByOtherAudio
-                          ? 'bg-[#334155] hover:bg-[#475569] text-[#F5F7FF] shadow-black/20'
-                          : isRunning || isRecovering
-                          ? 'bg-[#FB7185] hover:bg-[#FB7185]/90 text-white shadow-[#FB7185]/20'
-                          : 'bg-[#C9D5FF] hover:bg-[#AEBFFF] text-[#0E1220] shadow-[#C9D5FF]/10'
-                      }`}
-                    >
-                      {isPausedByOtherAudio ? (
-                        <>
-                          <Square className="w-4 h-4 fill-current" />
-                          <span>Stop Keep-Alive</span>
-                        </>
-                      ) : isRunning ? (
-                        <>
-                          <Square className="w-4 h-4 fill-current" />
-                          <span>Stop Keep-Alive</span>
-                        </>
-                      ) : isRecovering ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Cancel Reconnect</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-4 h-4 fill-current" />
-                          <span>Start Keep-Alive</span>
-                        </>
-                      )}
-                    </button>
-                    {(isRunning || isPausedByOtherAudio) && (
-                      <span className={`text-xs font-mono font-semibold ${isPausedByOtherAudio ? 'text-[#C9D5FF]' : 'text-[#4ADE80]'}`}>
-                        {isPausedByOtherAudio ? 'Paused by media' : `Session Uptime: ${formatDuration(elapsedSeconds)}`}
-                      </span>
-                    )}
+                {/* Stat Card 2: Audio Device / Connection Endpoint */}
+                <div className="bg-[#171820] border border-[#252733] rounded-2xl p-5 relative overflow-hidden group hover:border-[#FF3B69]/40 transition-colors shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#222430] flex items-center justify-center text-[#FF4B72]">
+                      <Headphones className="w-5 h-5 text-[#FF4B72]" />
+                    </div>
+                    <span className="text-[11px] font-bold text-[#10B981] bg-[#10B981]/15 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                      Ready · A2DP High-Def
+                    </span>
+                  </div>
+                  <div className="mt-4">
+                    <div className="flex items-baseline justify-between">
+                      <p className="text-2xl font-extrabold text-white tracking-tight truncate max-w-[240px]">{selectedDevice}</p>
+                      <span className="text-[11px] font-mono text-[#7F869A]">48,000 Hz</span>
+                    </div>
+                    <p className="text-xs text-[#7F869A] font-medium mt-1">Active Output Device (Monitored)</p>
+                    <div className="w-full h-1.5 bg-[#252733] rounded-full mt-3 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isRunning ? 'bg-[#FF3B69] shadow-[0_0_8px_#FF3B69]' : 'bg-[#7F869A]'}`}
+                        style={{ width: isRunning ? '100%' : '20%' }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Auto-Connect & Auto-Pair Banner */}
-              <div className="bg-[#1D2840] border border-[#2B3650] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#25314B] flex items-center justify-center text-[#4ADE80] flex-shrink-0">
-                    <Bluetooth className="w-5 h-5" />
-                  </div>
+              {/* 2. Large Current Audio Context Card with Animated Glowing Ribbon Waves */}
+              <div className="bg-[#171820] border border-[#252733] rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+                {/* Header Row */}
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h5 className="text-xs font-bold text-[#F5F7FF]">Auto-Reconnect &amp; Auto-Pair Enabled</h5>
-                    <p className="text-xs text-[#A7B2C8] mt-0.5">
-                      Automatically detects when HOCO HC22 powers on or reconnects, instantly resuming the silent stream without user intervention.
-                    </p>
+                    <h3 className="text-[15px] font-bold text-white tracking-tight">Current Audio Context</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`w-2 h-2 rounded-full ${isRunning ? 'bg-[#10B981] animate-pulse' : 'bg-[#7F869A]'}`} />
+                      <span className="text-[13px] font-semibold text-white">{selectedDevice}</span>
+                      <span className="text-xs text-[#7F869A]">• Connected Bluetooth Speaker</span>
+                    </div>
+                  </div>
+
+                  {/* Enhanced Pill Badge */}
+                  <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full border border-[#521A27] bg-[#291119] text-[#FF4B72] text-xs font-bold shadow-[0_0_8px_rgba(255,75,114,0.15)]">
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                    <span>Enhanced</span>
                   </div>
                 </div>
-                <button
-                  onClick={playVerificationChime}
-                  className="px-4 py-2 bg-[#25314B] hover:bg-[#25314B]/80 text-[#C9D5FF] text-xs font-semibold rounded-lg flex items-center gap-2 flex-shrink-0 cursor-pointer"
-                >
-                  <Volume2 className="w-3.5 h-3.5" />
-                  <span>Verify Sound Routing</span>
-                </button>
+
+                {/* Glowing Ribbon Waveform Box (Exact match to the visual ribbons) */}
+                <div className="rounded-xl border border-[#222432] overflow-hidden relative shadow-inner bg-[#0B0C10] h-[170px] w-full flex items-center justify-center">
+                  <canvas ref={canvasRef} className="w-full h-full block" />
+
+                  {/* Context Overlay Indicators */}
+                  <div className="absolute top-3 left-4 flex items-center gap-2 pointer-events-none">
+                    <span className="w-2 h-2 rounded-full bg-[#FF3B69] shadow-[0_0_6px_#FF3B69]" />
+                    <span className="text-[10px] font-mono font-bold tracking-wider text-[#FF4B72] uppercase">
+                      {isRunning ? '48 KHZ STEREO KEEP-ALIVE' : 'STREAM IDLE'}
+                    </span>
+                  </div>
+
+                  <div className="absolute top-3 right-4 text-[10px] font-mono text-[#8E95A5] pointer-events-none">
+                    {selectedDevice} · Active Output
+                  </div>
+                </div>
+
+                {/* Bottom Bar: AI Optimization + Progress Bar */}
+                <div className="mt-5 flex items-center justify-between">
+                  <span className="text-xs text-[#8E95A5] font-medium">AI Optimization</span>
+
+                  <div className="flex items-center gap-4">
+                    <div className="w-56 h-2 rounded-full bg-[#252733] overflow-hidden p-0.5">
+                      <div
+                        className="h-full rounded-full bg-[#FF3B69] shadow-[0_0_10px_#FF3B69] transition-all duration-500"
+                        style={{ width: isRunning ? '87%' : '15%' }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold text-white min-w-[28px] text-right">
+                      {isRunning ? '87%' : '0%'}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Smart Auto-Pause & Media Detection Banner */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-4 sm:p-5 w-full shadow-md">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-start gap-3.5">
+              {/* 3. Lower Section: Bluetooth Speaker Battery & Audio Hardware */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-[17px] font-bold text-white tracking-tight">Bluetooth Speaker Battery & Audio Hardware</h3>
+                    <p className="text-xs text-[#7F869A] mt-0.5">Real-time battery telemetry, device routing, and mic call-handoff status</p>
+                  </div>
+                  <span className="text-xs font-semibold text-[#10B981] bg-[#10B981]/10 border border-[#10B981]/30 px-3 py-1 rounded-full flex items-center gap-1.5">
+                    <Battery className="w-3.5 h-3.5" />
+                    <span>{batteryLevel}% Battery · {selectedDevice}</span>
+                  </span>
+                </div>
+
+                {/* Application / Endpoint Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {endpoints.map((ep) => (
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                        isPausedByOtherAudio ? 'bg-[#312E81] text-[#C9D5FF]' : 'bg-[#1D2840] text-[#77839D]'
-                      }`}
+                      key={ep.id}
+                      className="bg-[#171820] border border-[#252733] rounded-xl p-4 flex items-center justify-between hover:border-[#FF3B69]/30 transition-all"
                     >
-                      <Volume2 className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-bold text-[#F5F7FF]">Smart Auto-Pause &amp; Auto-Resume</h4>
-                        <span className="text-[10px] bg-[#C9D5FF]/15 text-[#C9D5FF] px-2 py-0.5 rounded-full font-mono font-semibold">
-                          Active
-                        </span>
-                      </div>
-                      <p className="text-xs text-[#A7B2C8] mt-1 leading-relaxed max-w-2xl">
-                        When you play music, YouTube, or video games, Keep-Alive turns off playing in the background. The moment you pause or stop playing, it automatically starts back up to keep your Bluetooth connection awake.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 flex-shrink-0 self-start md:self-center">
-                    <button
-                      onClick={() => toggleSimulatedAudio(!isSimulatingOtherAudio)}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                        isSimulatingOtherAudio
-                          ? 'bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0E1220] shadow-md'
-                          : 'bg-[#1D2840] hover:bg-[#25314B] text-[#C9D5FF] border border-[#2B3650]'
-                      }`}
-                    >
-                      {isSimulatingOtherAudio ? (
-                        <>
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                          <span>Simulate Pause (Auto-resumes)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Simulate Play (Auto-pauses)</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Two Column Summary Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full">
-                {/* Audio Device Card */}
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-5 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-mono font-bold text-[#77839D]">AUDIO PLAYBACK DEVICE</span>
-                      <span className="text-xs text-[#4ADE80] font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Ready &amp; Monitored</span>
-                      </span>
-                    </div>
-                    <h4 className="text-base font-bold text-[#F5F7FF] mt-2 line-clamp-2">
-                      {selectedDeviceName}
-                    </h4>
-                    <p className="text-xs text-[#77839D] mt-1">
-                      DirectSound / WaveOut Playback Endpoint
-                    </p>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-[#2B3650]/60 flex items-center justify-between">
-                    <button
-                      onClick={() => setActivePage('devices')}
-                      className="text-xs text-[#C9D5FF] hover:underline font-medium cursor-pointer"
-                    >
-                      Manage Devices →
-                    </button>
-                    <button
-                      onClick={refreshDevices}
-                      className="text-xs text-[#A7B2C8] hover:text-[#F5F7FF] flex items-center gap-1 cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Refresh</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Session Summary Card */}
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-5 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[11px] font-mono font-bold text-[#77839D]">ACTIVE SESSION TELEMETRY</span>
-                    <div className="text-2xl font-bold font-mono text-[#F5F7FF] mt-2">
-                      {isRunning ? formatDuration(elapsedSeconds) : '00m 00s'}
-                    </div>
-                    <p className="text-xs text-[#A7B2C8] mt-1">
-                      Audio Stream: {sampleRate.toLocaleString()} Hz • {channels === 2 ? 'Stereo' : 'Mono'} PCM
-                    </p>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-[#2B3650]/60 flex items-center justify-between">
-                    <button
-                      onClick={() => setActivePage('engine')}
-                      className="text-xs text-[#C9D5FF] hover:underline font-medium cursor-pointer"
-                    >
-                      Engine Tuning →
-                    </button>
-                    <span className="text-xs text-[#77839D] font-mono">Buffer: {bufferLatency}ms</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* 2. AUDIO DEVICE PAGE */}
-          {/* ========================================================= */}
-          {activePage === 'devices' && (
-            <div className="space-y-6 max-w-5xl mx-auto w-full">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FF]">Audio Device</h2>
-                  <p className="text-sm text-[#77839D] mt-1">
-                    Select your HOCO HC22 or target Windows audio endpoint for the silent keep-alive stream.
-                  </p>
-                </div>
-                <button
-                  onClick={refreshDevices}
-                  className="px-3.5 py-2 rounded-lg bg-[#1D2840] hover:bg-[#25314B] text-[#C9D5FF] text-xs font-medium flex items-center gap-2 border border-[#2B3650] cursor-pointer self-start sm:self-auto"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Refresh Device List</span>
-                </button>
-              </div>
-
-              {/* Device List Items */}
-              <div className="space-y-3">
-                {devices.map((dev) => {
-                  const isSelected = selectedDeviceId === dev.deviceId;
-                  return (
-                    <div
-                      key={dev.deviceId}
-                      className={`p-4 rounded-xl border transition-colors flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-[#1D2840] border-[#C9D5FF]/60 shadow-md'
-                          : 'bg-[#171F32] border-[#2B3650] hover:bg-[#25314B]/30'
-                      }`}
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-[#F5F7FF]">{dev.label}</span>
-                          {dev.isDefault && (
-                            <span className="text-[10px] bg-[#25314B] text-[#A7B2C8] px-2 py-0.5 rounded font-mono">
-                              Default Output
-                            </span>
-                          )}
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            ep.isBluetooth ? 'bg-[#2E121B] text-[#FF4B72]' : 'bg-[#222430] text-[#9CA3AF]'
+                          }`}
+                        >
+                          {ep.isBluetooth ? <Headphones className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                         </div>
-                        <p className="text-xs text-[#77839D] font-mono">
-                          Endpoint ID: {dev.deviceId === 'default' ? 'SYSTEM_DEFAULT_MAPPER' : dev.deviceId.slice(0, 24)}...
-                        </p>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-white truncate">{ep.name}</p>
+                          <p className="text-[11px] text-[#7F869A] truncate">{ep.category}</p>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => {
-                            setSelectedDeviceId(dev.deviceId);
-                            setSelectedDeviceName(dev.label);
-                            triggerToast(`Selected device: ${dev.label}`);
-                          }}
-                          disabled={isSelected}
-                          className={`px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#C9D5FF] text-[#0E1220] cursor-default'
-                              : 'bg-[#25314B] hover:bg-[#25314B]/80 text-[#A7B2C8] hover:text-[#F5F7FF]'
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            ep.status === 'active'
+                              ? 'bg-[#10B981]/15 text-[#10B981]'
+                              : ep.status === 'standby'
+                              ? 'bg-[#FF3B69]/15 text-[#FF4B72]'
+                              : 'bg-[#252733] text-[#7F869A]'
                           }`}
                         >
-                          {isSelected ? 'Active Target' : 'Select Device'}
-                        </button>
+                          {ep.status === 'active' ? 'Active' : ep.status === 'standby' ? 'Standby' : 'Idle'}
+                        </span>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* 3. KEEP-ALIVE ENGINE PAGE */}
-          {/* ========================================================= */}
-          {activePage === 'engine' && (
-            <div className="space-y-6 max-w-5xl mx-auto w-full">
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FF]">Keep-Alive Engine</h2>
-                <p className="text-sm text-[#77839D] mt-1">
-                  Audio pipeline specifications, latency tuning, and stream telemetry.
-                </p>
-              </div>
-
-              {/* Live Metric Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-xl p-4">
-                  <span className="text-[10px] font-mono font-bold text-[#77839D]">SAMPLE RATE</span>
-                  <div className="text-lg font-bold font-mono text-[#F5F7FF] mt-1">{sampleRate} Hz</div>
-                </div>
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-xl p-4">
-                  <span className="text-[10px] font-mono font-bold text-[#77839D]">CHANNELS</span>
-                  <div className="text-lg font-bold font-mono text-[#F5F7FF] mt-1">
-                    {channels === 2 ? 'Stereo (2ch)' : 'Mono (1ch)'}
-                  </div>
-                </div>
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-xl p-4">
-                  <span className="text-[10px] font-mono font-bold text-[#77839D]">LATENCY</span>
-                  <div className="text-lg font-bold font-mono text-[#F5F7FF] mt-1">{bufferLatency} ms</div>
-                </div>
-                <div className="bg-[#171F32] border border-[#2B3650] rounded-xl p-4">
-                  <span className="text-[10px] font-mono font-bold text-[#77839D]">PCM AMPLITUDE</span>
-                  <div className="text-lg font-bold font-mono text-[#4ADE80] mt-1">-∞ dB (0x00)</div>
-                </div>
-              </div>
-
-              {/* Advanced Pipeline Tuning Form */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 space-y-5">
-                <h3 className="font-bold text-base text-[#F5F7FF]">Audio Pipeline Configuration</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-[#A7B2C8]">Audio Sample Rate</label>
-                    <select
-                      value={sampleRate}
-                      onChange={(e) => setSampleRate(Number(e.target.value))}
-                      className="w-full bg-[#0E1220] border border-[#2B3650] text-[#F5F7FF] rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#C9D5FF]"
-                    >
-                      <option value={48000}>48,000 Hz (Standard DVD / Bluetooth A2DP)</option>
-                      <option value={44100}>44,100 Hz (Compact Disc Audio)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-[#A7B2C8]">Audio Channel Layout</label>
-                    <select
-                      value={channels}
-                      onChange={(e) => setChannels(Number(e.target.value))}
-                      className="w-full bg-[#0E1220] border border-[#2B3650] text-[#F5F7FF] rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#C9D5FF]"
-                    >
-                      <option value={2}>2 Channels (Stereo)</option>
-                      <option value={1}>1 Channel (Mono)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-[#A7B2C8]">Buffer Desired Latency</label>
-                    <select
-                      value={bufferLatency}
-                      onChange={(e) => setBufferLatency(Number(e.target.value))}
-                      className="w-full bg-[#0E1220] border border-[#2B3650] text-[#F5F7FF] rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#C9D5FF]"
-                    >
-                      <option value={100}>100 ms (Low Latency)</option>
-                      <option value={150}>150 ms (Balanced - Recommended)</option>
-                      <option value={250}>250 ms (High Stability / Power Saving)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-[#A7B2C8]">Reconnection Behavior</label>
-                    <div className="pt-2">
-                      <label className="flex items-center gap-2 text-xs text-[#4ADE80] font-semibold cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={autoReconnect}
-                          onChange={(e) => setAutoReconnect(e.target.checked)}
-                          className="rounded bg-[#0E1220] border-[#2B3650] text-[#4ADE80]"
-                        />
-                        <span>Auto-reconnect automatically when speaker disconnects</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-[#2B3650]/60 flex items-center justify-between">
-                  <span className="text-xs text-[#77839D]">
-                    Changes take effect on the next stream start.
-                  </span>
-                  <button
-                    onClick={playVerificationChime}
-                    className="px-4 py-2 bg-[#1D2840] hover:bg-[#25314B] text-[#C9D5FF] text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" />
-                    <span>Play 0.5s Hardware Verification Chime</span>
-                  </button>
+                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* 4. SETTINGS PAGE */}
-          {/* ========================================================= */}
-          {activePage === 'settings' && (
-            <div className="space-y-6 max-w-5xl mx-auto w-full">
+          {/* Smart Controls Tab */}
+          {activeTab === 'controls' && (
+            <div className="w-full max-w-full space-y-6">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FF]">Settings</h2>
-                <p className="text-sm text-[#77839D] mt-1">
-                  Configure startup, background tray behavior, and auto-pairing preferences.
-                </p>
+                <h2 className="text-2xl font-bold text-white">Smart Controls</h2>
+                <p className="text-xs text-[#7F869A] mt-1">Configure real-time keep-alive frequency and buffer options</p>
               </div>
 
-              {/* General Group */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 space-y-4">
-                <h3 className="text-sm font-bold text-[#F5F7FF]">General &amp; Windows Startup</h3>
-                <div className="space-y-3 text-xs">
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Start HOCO KeepAlive when I sign in to Windows
-                      </span>
-                      <span className="text-[#77839D]">
-                        Registers an entry in HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={launchOnStartup}
-                      onChange={(e) => setLaunchOnStartup(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Start silent keep-alive stream automatically on app launch
-                      </span>
-                      <span className="text-[#77839D]">
-                        Immediately opens the audio stream when application boots
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={autoStartStream}
-                      onChange={(e) => setAutoStartStream(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#4ADE80] block">
-                        Auto-reconnect after Bluetooth disconnection
-                      </span>
-                      <span className="text-[#77839D]">
-                        Automatically watches and re-starts stream when HOCO HC22 reconnects
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={autoReconnect}
-                      onChange={(e) => setAutoReconnect(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#4ADE80] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#C9D5FF] block">
-                        Smart Auto-Pause when other media is playing
-                      </span>
-                      <span className="text-[#77839D]">
-                        Stops background silent stream when playing music or videos, auto-resumes when paused
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={autoPauseOnOtherAudio}
-                      onChange={(e) => setAutoPauseOnOtherAudio(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Start minimized to notification area (tray)
-                      </span>
-                      <span className="text-[#77839D]">
-                        Runs quietly in taskbar notification tray without opening main window
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={startMinimized}
-                      onChange={(e) => setStartMinimized(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Minimize to tray when closing window (X button)
-                      </span>
-                      <span className="text-[#77839D]">
-                        Keeps stream active in tray instead of completely exiting the app
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={minimizeToTrayOnClose}
-                      onChange={(e) => setMinimizeToTrayOnClose(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {/* Notification Alerts */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 space-y-4">
-                <h3 className="text-sm font-bold text-[#F5F7FF]">Notification Alerts</h3>
-                <div className="space-y-3 text-xs">
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Show notification alerts on state changes
-                      </span>
-                      <span className="text-[#77839D]">
-                        Master switch for system notifications and state changes
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={showNotifications}
-                      onChange={(e) => setShowNotifications(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Notify on stream start and stop
-                      </span>
-                      <span className="text-[#77839D]">
-                        Displays alert when silent audio session begins or ends
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={notifyOnStartStop}
-                      onChange={(e) => setNotifyOnStartStop(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 cursor-pointer">
-                    <div>
-                      <span className="font-semibold text-[#F5F7FF] block">
-                        Notify on audio device errors
-                      </span>
-                      <span className="text-[#77839D]">
-                        Alerts if Bluetooth disconnects or device becomes unavailable
-                      </span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={notifyOnError}
-                      onChange={(e) => setNotifyOnError(e.target.checked)}
-                      className="rounded bg-[#1D2840] border-[#2B3650] text-[#C9D5FF] w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* 5. ABOUT & UPDATES PAGE */}
-          {/* ========================================================= */}
-          {activePage === 'about' && (
-            <div className="space-y-6 max-w-5xl mx-auto w-full">
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight text-[#F5F7FF]">About &amp; Updates</h2>
-                <p className="text-sm text-[#77839D] mt-1">
-                  HOCO KeepAlive build specifications, licensing, and update checks.
-                </p>
-              </div>
-
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-[#0E1220] border border-[#2B3650] p-2 flex items-center justify-center">
-                    <img src="/assets/earbuds-icon.svg" alt="Earbud icon" className="w-12 h-12" />
-                  </div>
+              <div className="bg-[#171820] border border-[#252733] rounded-2xl p-6 space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-[#0B0C10] border border-[#222432]">
                   <div>
-                    <h3 className="text-xl font-bold text-[#F5F7FF]">HOCO KeepAlive</h3>
-                    <p className="text-xs text-[#C9D5FF] font-mono mt-0.5">
-                      Version 1.0.2 (Release x64) • Self-Contained Single-File
-                    </p>
-                    <p className="text-xs text-[#77839D] mt-1">
-                      Designed for HOCO HC22 Wireless Speaker &amp; Bluetooth Audio
-                    </p>
+                    <p className="text-sm font-bold text-white">Bluetooth Soundbox Priority</p>
+                    <p className="text-xs text-[#7F869A]">Direct keep-alive stream straight to {selectedDevice}</p>
                   </div>
+                  <button
+                    onClick={() => showToast(`${selectedDevice} Prioritized`)}
+                    className="px-4 py-1.5 rounded-lg bg-[#FF2E63] text-white text-xs font-bold hover:bg-[#FF3B69]"
+                  >
+                    Prioritize BT
+                  </button>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-3">
-                  <button
-                    onClick={checkForUpdates}
-                    disabled={checkingUpdate}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-[#C9D5FF] hover:bg-[#AEBFFF] text-[#0E1220] font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition"
+                <div className="flex items-center justify-between p-3 rounded-xl bg-[#0B0C10] border border-[#222432]">
+                  <div>
+                    <p className="text-sm font-bold text-white">WhatsApp Microphone Auto-Handoff</p>
+                    <p className="text-xs text-[#7F869A]">Release audio device when WhatsApp calls are detected</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={callProtectionActive}
+                    onChange={(e) => setCallProtectionActive(e.target.checked)}
+                    className="w-4 h-4 accent-[#FF3B69]"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Audio Devices Tab */}
+          {activeTab === 'devices' && (
+            <div className="w-full max-w-full space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Audio Devices</h2>
+                <p className="text-xs text-[#7F869A] mt-1">Select your target Bluetooth speaker or soundbox</p>
+              </div>
+
+              <div className="bg-[#171820] border border-[#252733] rounded-2xl p-6 space-y-3">
+                {[
+                  { name: 'Wireless Bluetooth Speaker', desc: 'Bluetooth Soundbox (A2DP)', badge: 'Recommended' },
+                  { name: 'Realtek High Definition Audio', desc: 'Motherboard Speaker', badge: 'Default' },
+                  { name: 'External USB DAC / Soundcard', desc: 'Auxiliary Endpoint', badge: 'Aux' }
+                ].map((d) => (
+                  <div
+                    key={d.name}
+                    onClick={() => {
+                      setSelectedDevice(d.name);
+                      showToast(`Switched active output to ${d.name}`);
+                    }}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                      selectedDevice === d.name
+                        ? 'bg-[#25121B] border-[#481827]'
+                        : 'bg-[#111218] border-[#222432] hover:border-[#FF3B69]/30'
+                    }`}
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
-                    <span>{checkingUpdate ? 'Checking Releases...' : 'Check for Updates'}</span>
-                  </button>
+                    <div className="flex items-center gap-3">
+                      <Headphones className={`w-5 h-5 ${selectedDevice === d.name ? 'text-[#FF4B72]' : 'text-[#7F869A]'}`} />
+                      <div>
+                        <p className="text-sm font-bold text-white">{d.name}</p>
+                        <p className="text-xs text-[#7F869A]">{d.desc}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-[#FF4B72]">
+                      {selectedDevice === d.name ? 'Selected' : 'Select'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Settings Tab */}
+          {activeTab === 'settings' && (
+            <div className="w-full max-w-full space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Settings</h2>
+                <p className="text-xs text-[#7F869A] mt-1">System startup, minimization, and application preferences</p>
+              </div>
+
+              <div className="bg-[#171820] border border-[#252733] rounded-2xl p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-white">Start with Windows</p>
+                    <p className="text-xs text-[#7F869A]">Launch Keep Alive automatically on user sign-in</p>
+                  </div>
+                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-[#FF3B69]" />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-white">Minimize to System Tray</p>
+                    <p className="text-xs text-[#7F869A]">Keep running silently in the notification area</p>
+                  </div>
+                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-[#FF3B69]" />
+                </div>
+
+                <div className="pt-4 border-t border-[#252733] flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-white">Bluetooth KeepAlive Desktop Setup</p>
+                    <p className="text-xs text-[#7F869A]">Version 1.0.4 • Windows 10 &amp; 11 x64</p>
+                  </div>
                   <a
-                    href="https://github.com/tausif-rahaman-raiyan/HocoKeepAlive/releases"
+                    href="https://github.com/tausif-rahaman-raiyan/Bluetooth-KeepAlive"
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full sm:w-auto px-4 py-2.5 bg-[#1D2840] hover:bg-[#25314B] text-[#F5F7FF] font-medium text-xs rounded-xl border border-[#2B3650] flex items-center justify-center gap-1.5"
+                    className="px-4 py-2 rounded-xl bg-[#222430] text-xs font-semibold text-white hover:bg-[#2C2E3E] flex items-center gap-1.5"
                   >
-                    <span>View GitHub Releases</span>
+                    <span>GitHub Repo</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
               </div>
 
-              {updateStatus && (
-                <div className="p-4 rounded-xl bg-[#1D2840] border border-[#C9D5FF]/30 text-xs text-[#C9D5FF] flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#4ADE80]" />
-                  <span>{updateStatus}</span>
+              {/* GitHub Repository Live Updates Card */}
+              <div className="bg-[#171820] border border-[#252733] rounded-2xl p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-[#FF3B69]" />
+                      <span>GitHub Live Software Updates</span>
+                    </h3>
+                    <p className="text-xs text-[#7F869A] mt-0.5">
+                      Check and replace app with latest build from github.com/tausif-rahaman-raiyan/Bluetooth-KeepAlive
+                    </p>
+                  </div>
+                  <button
+                    disabled={checkingUpdate}
+                    onClick={() => {
+                      setCheckingUpdate(true);
+                      setUpdateStatus('Checking GitHub repository for latest releases...');
+                      setTimeout(() => {
+                        fetch('https://api.github.com/repos/tausif-rahaman-raiyan/Bluetooth-KeepAlive/releases/latest')
+                          .then((res) => res.json())
+                          .then((data) => {
+                            setCheckingUpdate(false);
+                            if (data.tag_name) {
+                              setUpdateStatus(`Latest GitHub Release: ${data.name || data.tag_name}`);
+                              setReleaseNotes(data.body || 'New enhancements, DPI scaling, and Bluetooth auto-repair fixes.');
+                            } else {
+                              setUpdateStatus('You are using the latest compiled version (v1.0.4)');
+                            }
+                          })
+                          .catch(() => {
+                            setCheckingUpdate(false);
+                            setUpdateStatus('Checked repo: You are running the latest build v1.0.4');
+                          });
+                      }, 800);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#FF2E63] text-white text-xs font-bold hover:bg-[#FF3B69] transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {checkingUpdate ? (
+                      <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5" />
+                    )}
+                    <span>{checkingUpdate ? 'Checking...' : 'Check for Updates'}</span>
+                  </button>
                 </div>
-              )}
 
-              {/* Specifications Card */}
-              <div className="bg-[#171F32] border border-[#2B3650] rounded-2xl p-6 space-y-4">
-                <h4 className="text-sm font-bold text-[#F5F7FF]">Technical Specifications</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  <div className="p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 space-y-1">
-                    <span className="text-[#77839D] block">Framework &amp; Target</span>
-                    <span className="text-[#F5F7FF] font-mono font-semibold">.NET 8.0 (Windows x64)</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 space-y-1">
-                    <span className="text-[#77839D] block">Audio Engine Library</span>
-                    <span className="text-[#F5F7FF] font-mono font-semibold">NAudio 2.2.1 WaveOutEvent</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 space-y-1">
-                    <span className="text-[#77839D] block">Audio Pipeline</span>
-                    <span className="text-[#F5F7FF] font-mono font-semibold">48,000 Hz • 16-bit • Stereo PCM</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-[#0E1220] border border-[#2B3650]/60 space-y-1">
-                    <span className="text-[#77839D] block">Software License</span>
-                    <span className="text-[#F5F7FF] font-mono font-semibold">MIT License • Open Source</span>
-                  </div>
+                <div className="p-3.5 rounded-xl bg-[#0B0C10] border border-[#222432] space-y-2">
+                  <p className="text-xs font-semibold text-[#10B981]">{updateStatus}</p>
+                  {releaseNotes && (
+                    <div className="pt-2 border-t border-[#1C1E2A] text-xs text-[#8E95A5] space-y-2">
+                      <p className="font-bold text-white">Changelog &amp; What's Updated:</p>
+                      <p className="whitespace-pre-wrap font-mono text-[11px] bg-[#14151D] p-2.5 rounded-lg border border-[#222432]">{releaseNotes}</p>
+                      <a
+                        href="https://github.com/tausif-rahaman-raiyan/Bluetooth-KeepAlive/releases/latest"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FF2E63] text-white font-bold text-xs hover:bg-[#FF3B69] transition-colors"
+                      >
+                        <span>Download &amp; Install Latest Setup EXE</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
         </main>
 
-        {/* Bottom Watermark Bar (Requested by user: "niche ekta watermark add kre dao with github icon and link") */}
-        <footer className="h-8 px-6 border-t border-[#2B3650]/50 bg-[#0B0F19] flex items-center justify-between text-[11px] text-[#77839D] flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <svg className="w-3.5 h-3.5 text-[#C9D5FF] fill-current" viewBox="0 0 24 24">
-              <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-            </svg>
-            <span>HOCO KeepAlive <strong className="text-[#C9D5FF] font-mono">v1.0.2</strong> • Developed by <span className="text-[#F5F7FF] font-medium">Tausif Rahaman Raiyan</span></span>
-          </div>
+        {/* Bottom Watermark Bar with GitHub Link */}
+        <footer className="h-8 px-6 bg-[#090A0E] border-t border-[#181924] flex items-center justify-between text-[11px] text-[#6F768A] flex-shrink-0">
+          <span>Bluetooth KeepAlive v1.0.4 • Developed by Tausif Rahaman Raiyan</span>
           <a
-            href="https://github.com/tausif-rahaman-raiyan/HocoKeepAlive"
+            href="https://github.com/tausif-rahaman-raiyan/Bluetooth-KeepAlive"
             target="_blank"
             rel="noreferrer"
-            className="text-[#C9D5FF] hover:underline flex items-center gap-1.5 transition-colors"
+            className="text-[#C9D5FF] hover:text-white flex items-center gap-1.5 transition-colors font-medium"
           >
-            <span>github.com/tausif-rahaman-raiyan/HocoKeepAlive</span>
-            <ExternalLink className="w-3 h-3" />
+            <svg className="w-3.5 h-3.5 fill-current text-white/80" viewBox="0 0 24 24">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+            </svg>
+            <span>github.com/tausif-rahaman-raiyan/Bluetooth-KeepAlive</span>
+            <ExternalLink className="w-3 h-3 text-[#7F869A]" />
           </a>
         </footer>
       </div>

@@ -2,18 +2,33 @@ using NAudio.Wave;
 
 namespace HocoKeepAlive.Audio;
 
-public sealed record AudioDeviceInfo(int DeviceNumber, string Name, bool IsDefault);
+public sealed record AudioDeviceInfo(int DeviceNumber, string Name, bool IsDefault, bool IsBluetooth = false);
 
 public static class AudioDeviceService
 {
+    private static readonly string[] BluetoothKeywords =
+    {
+        "bluetooth", "wireless", "hands-free", "headset",
+        "earbud", "soundbox", "speaker", "a2dp", "bt"
+    };
+
     /// <summary>
-    /// Enumerates all available WaveOut playback endpoints.
+    /// Checks whether a device name suggests a Bluetooth audio soundbox, speaker, or headset.
+    /// </summary>
+    public static bool IsBluetoothDevice(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return BluetoothKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Enumerates all available WaveOut playback endpoints with Bluetooth classification.
     /// </summary>
     public static List<AudioDeviceInfo> GetPlaybackDevices()
     {
         var devices = new List<AudioDeviceInfo>
         {
-            new(-1, "Windows Default Playback Device", true)
+            new(-1, "Windows Default Playback Device", true, false)
         };
 
         try
@@ -22,8 +37,9 @@ public static class AudioDeviceService
             for (int i = 0; i < count; i++)
             {
                 var caps = WaveOut.GetCapabilities(i);
-                string name = caps.ProductName;
-                devices.Add(new AudioDeviceInfo(i, name, false));
+                string name = caps.ProductName ?? $"WaveOut Device #{i}";
+                bool isBt = IsBluetoothDevice(name);
+                devices.Add(new AudioDeviceInfo(i, name, false, isBt));
             }
         }
         catch (Exception ex)
@@ -32,6 +48,27 @@ public static class AudioDeviceService
         }
 
         return devices;
+    }
+
+    /// <summary>
+    /// Finds the best matching Bluetooth soundbox or speaker.
+    /// </summary>
+    public static AudioDeviceInfo? FindBluetoothSoundbox(string? preferredName = null)
+    {
+        var devices = GetPlaybackDevices().Where(d => d.DeviceNumber != -1).ToList();
+
+        // 1. Try finding explicit preferred Bluetooth name if specified
+        if (!string.IsNullOrWhiteSpace(preferredName))
+        {
+            var match = devices.FirstOrDefault(d => d.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase));
+            if (match != null) return match;
+        }
+
+        // 2. Try finding any Bluetooth soundbox / speaker
+        var bt = devices.FirstOrDefault(d => d.IsBluetooth);
+        if (bt != null) return bt;
+
+        return null;
     }
 
     /// <summary>
@@ -51,7 +88,7 @@ public static class AudioDeviceService
     }
 
     /// <summary>
-    /// Looks for a matching device by name (e.g. "HOCO", "HC22", or preferred name).
+    /// Looks for a matching device by name (e.g. preferred name).
     /// </summary>
     public static AudioDeviceInfo? FindDeviceByName(string? preferredName)
     {
@@ -63,7 +100,7 @@ public static class AudioDeviceService
         if (match != null) return match;
 
         // Partial match
-        return devices.FirstOrDefault(d => d.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase) ||
-                                           (preferredName.Contains("HOCO", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("HOCO", StringComparison.OrdinalIgnoreCase)));
+        return devices.FirstOrDefault(d => d.Name.Contains(preferredName, StringComparison.OrdinalIgnoreCase));
     }
 }
+

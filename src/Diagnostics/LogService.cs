@@ -24,17 +24,17 @@ public static class LogService
         try
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string folder = Path.Combine(appData, "HocoKeepAlive", "Logs");
+            string folder = Path.Combine(appData, "KeepAlive", "Logs");
             Directory.CreateDirectory(folder);
             _logFilePath = Path.Combine(folder, $"session_{DateTime.UtcNow:yyyyMMdd}.log");
         }
         catch { }
 
-        Log(LogSeverity.Info, "Application", "HOCO KeepAlive diagnostic session initialized.");
+        Log(LogSeverity.Info, "Application", "Keep Alive diagnostic session initialized.");
     }
 
     public static string LogDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HocoKeepAlive", "Logs");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KeepAlive", "Logs");
 
     public static void Log(LogSeverity severity, string eventType, string message, string? details = null)
     {
@@ -94,7 +94,7 @@ public static class LogService
     public static string ExportReport()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("=== HOCO KeepAlive Diagnostic Report ===");
+        sb.AppendLine("=== Keep Alive Diagnostic Report ===");
         sb.AppendLine($"Generated: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
         sb.AppendLine($"OS Version: {Environment.OSVersion}");
         sb.AppendLine($"64-bit OS: {Environment.Is64BitOperatingSystem}");

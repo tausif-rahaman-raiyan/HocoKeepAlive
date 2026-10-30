@@ -7,7 +7,7 @@ namespace HocoKeepAlive.Configuration;
 public sealed class AppSettings
 {
     private const string RunRegistrySubKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string AppRegistryName = "HOCO KeepAlive";
+    private const string AppRegistryName = "Keep Alive";
 
     public int PreferredDeviceNumber { get; set; } = -1;
     public string PreferredDeviceName { get; set; } = "Windows Default Playback Device";
@@ -19,7 +19,11 @@ public sealed class AppSettings
     public bool NotifyOnStartStop { get; set; } = true;
     public bool NotifyOnError { get; set; } = true;
     public bool AutoReconnectOnDeviceAvailable { get; set; } = true;
-    public bool AutoPauseOnOtherAudio { get; set; } = true;
+    public bool AutoPauseOnOtherAudio { get; set; } = false;
+    public bool AlwaysKeepStreamActive { get; set; } = true;
+    public bool CallProtectionMode { get; set; } = true;
+    public bool PreferBluetoothSoundbox { get; set; } = true;
+    public string LastKnownBluetoothDevice { get; set; } = "Bluetooth Wireless Speaker";
     public int ResumeDelayMilliseconds { get; set; } = 1200;
     public int SampleRate { get; set; } = 48000;
     public int Channels { get; set; } = 2;
@@ -31,9 +35,22 @@ public sealed class AppSettings
     private static string GetConfigFilePath()
     {
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string folder = Path.Combine(appData, "HocoKeepAlive");
+        string folder = Path.Combine(appData, "KeepAlive");
         Directory.CreateDirectory(folder);
-        return Path.Combine(folder, "settings.json");
+
+        string newConfigPath = Path.Combine(folder, "settings.json");
+        if (!File.Exists(newConfigPath))
+        {
+            // Backwards compatibility migration from previous data directory if present
+            string legacyFolder = Path.Combine(appData, "HocoKeepAlive");
+            string legacyPath = Path.Combine(legacyFolder, "settings.json");
+            if (File.Exists(legacyPath))
+            {
+                try { File.Copy(legacyPath, newConfigPath, true); } catch { }
+            }
+        }
+
+        return newConfigPath;
     }
 
     public static AppSettings Load()
@@ -88,14 +105,14 @@ public sealed class AppSettings
             if (enable)
             {
                 key.SetValue(AppRegistryName, $"\"{exePath}\" --minimized");
-                LogService.Log(LogSeverity.Info, "Startup", "Registered HOCO KeepAlive in Windows Startup.");
+                LogService.Log(LogSeverity.Info, "Startup", "Registered Keep Alive in Windows Startup.");
             }
             else
             {
                 if (key.GetValue(AppRegistryName) != null)
                 {
                     key.DeleteValue(AppRegistryName, false);
-                    LogService.Log(LogSeverity.Info, "Startup", "Removed HOCO KeepAlive from Windows Startup.");
+                    LogService.Log(LogSeverity.Info, "Startup", "Removed Keep Alive from Windows Startup.");
                 }
             }
         }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using HocoKeepAlive.Diagnostics;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Wave;
 
 namespace HocoKeepAlive.Audio;
@@ -11,6 +12,7 @@ public enum AudioEngineState
     Starting,
     Running,
     PausedByOtherAudio,
+    PausedByCallOrMic,
     DeviceUnavailable,
     Recovering,
     Error,
@@ -38,8 +40,12 @@ public sealed class AudioKeepAliveService : IDisposable
     private System.Threading.Timer? _activityWatchdogTimer;
     private MMDeviceEnumerator? _mmEnumerator;
     private MMDevice? _currentMmDevice;
+    private MMDevice? _currentCaptureDevice;
     private DateTime _lastOtherAudioDetectedUtc = DateTime.MinValue;
+    private DateTime _lastCallOrMicDetectedUtc = DateTime.MinValue;
     private bool _autoPauseOnOtherAudio = true;
+    private bool _callProtectionMode = true;
+    private bool _preferBluetoothSoundbox = true;
     private int _resumeDelayMilliseconds = 1200;
 
     public int SampleRate { get; set; } = 48000;
@@ -56,6 +62,8 @@ public sealed class AudioKeepAliveService : IDisposable
         }
     }
 
+    public bool AlwaysKeepStreamActive { get; set; } = true;
+
     public bool AutoPauseOnOtherAudio
     {
         get => _autoPauseOnOtherAudio;
@@ -69,6 +77,43 @@ public sealed class AudioKeepAliveService : IDisposable
                     // Resume immediately if auto-pause was toggled off while paused
                     ResumeKeepAliveStream();
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// WhatsApp & Call Protection: Automatically yields/releases the Bluetooth audio endpoint
+    /// whenever WhatsApp, Zoom, Teams, or any voice/video call accesses the microphone.
+    /// This fixes the "Microphone unavailable" conflict on Bluetooth speakers and headsets.
+    /// </summary>
+    public bool CallProtectionMode
+    {
+        get => _callProtectionMode;
+        set
+        {
+            lock (_syncRoot)
+            {
+                _callProtectionMode = value;
+                if (!value && _state == AudioEngineState.PausedByCallOrMic)
+                {
+                    ResumeKeepAliveStream();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// When enabled, prefers routing to a connected Bluetooth soundbox / speaker
+    /// rather than generic Windows system sound or motherboard speakers.
+    /// </summary>
+    public bool PreferBluetoothSoundbox
+    {
+        get => _preferBluetoothSoundbox;
+        set
+        {
+            lock (_syncRoot)
+            {
+                _preferBluetoothSoundbox = value;
             }
         }
     }
@@ -151,7 +196,7 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             lock (_syncRoot)
             {
-                if ((_state != AudioEngineState.Running && _state != AudioEngineState.PausedByOtherAudio) || _startedAt == null)
+                if ((_state != AudioEngineState.Running && _state != AudioEngineState.PausedByOtherAudio && _state != AudioEngineState.PausedByCallOrMic) || _startedAt == null)
                     return null;
                 return DateTime.UtcNow - _startedAt.Value;
             }
@@ -165,7 +210,7 @@ public sealed class AudioKeepAliveService : IDisposable
             _userExplicitlyStopped = false;
             StopReconnectionWatchdog();
 
-            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.Starting)
+            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.PausedByCallOrMic || _state == AudioEngineState.Starting)
             {
                 return true;
             }
@@ -203,7 +248,7 @@ public sealed class AudioKeepAliveService : IDisposable
     {
         lock (_syncRoot)
         {
-            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio)
+            if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.PausedByCallOrMic)
             {
                 Stop();
             }
@@ -220,6 +265,19 @@ public sealed class AudioKeepAliveService : IDisposable
         {
             CleanupOutput();
             RefreshCurrentMmDevice();
+
+            // If configured to prioritize Bluetooth soundbox, auto-select it if currently on default or not configured
+            if (_preferBluetoothSoundbox && (_targetDeviceNumber == -1 || string.IsNullOrWhiteSpace(_preferredDeviceName) || _preferredDeviceName.Contains("Default", StringComparison.OrdinalIgnoreCase)))
+            {
+                var btMatch = AudioDeviceService.FindBluetoothSoundbox(_preferredDeviceName);
+                if (btMatch != null && AudioDeviceService.IsDeviceAvailable(btMatch.DeviceNumber))
+                {
+                    _targetDeviceNumber = btMatch.DeviceNumber;
+                    _preferredDeviceName = btMatch.Name;
+                    LogService.Log(LogSeverity.Info, "AudioEngine", $"Auto-routed to Bluetooth Soundbox: {btMatch.Name} (Device #{btMatch.DeviceNumber}).");
+                    RefreshCurrentMmDevice();
+                }
+            }
 
             // Try resolving by device number or by name
             int deviceToUse = _targetDeviceNumber;
@@ -253,6 +311,19 @@ public sealed class AudioKeepAliveService : IDisposable
             _output.PlaybackStopped += OnPlaybackStopped;
             _output.Init(_provider);
 
+            // WhatsApp & Call Protection: If microphone / call is ALREADY active, do not lock audio endpoint!
+            if (_callProtectionMode && IsCaptureOrCallActive())
+            {
+                _startedAt = DateTime.UtcNow;
+                _lastError = null;
+                _lastCallOrMicDetectedUtc = DateTime.UtcNow;
+                CleanupOutput();
+                LogService.Log(LogSeverity.Info, "AudioEngine", "WhatsApp / Voice Call or Microphone active. Keep-alive endpoint released to enable Bluetooth mic.");
+                SetState(AudioEngineState.PausedByCallOrMic, "Call / Mic in use (e.g. WhatsApp video call). Keep-alive endpoint released to enable Bluetooth microphone.");
+                StartActivityWatchdog();
+                return true;
+            }
+
             // Check if other audio is ALREADY playing before starting
             float initialPeak = GetMasterPeakValue();
             if (_autoPauseOnOtherAudio && initialPeak > 0.003f)
@@ -260,10 +331,6 @@ public sealed class AudioKeepAliveService : IDisposable
                 _startedAt = DateTime.UtcNow;
                 _lastError = null;
                 _lastOtherAudioDetectedUtc = DateTime.UtcNow;
-                // Release the playback handle completely while another app is using audio.
-                // This is important for Bluetooth headsets/speakerphones: holding a WaveOut
-                // endpoint open can interfere with Windows switching to the hands-free profile
-                // required by calls and microphone capture.
                 CleanupOutput();
                 LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio currently active (peak {initialPeak:F3}). Releasing keep-alive endpoint and entering standby.");
                 SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Playback endpoint released while audio is active.");
@@ -320,19 +387,19 @@ public sealed class AudioKeepAliveService : IDisposable
                     SetState(AudioEngineState.Error, e.Exception.Message);
                 }
             }
-            else if (_state != AudioEngineState.PausedByOtherAudio)
+            else if (_state != AudioEngineState.PausedByOtherAudio && _state != AudioEngineState.PausedByCallOrMic)
             {
                 SetState(AudioEngineState.Stopped);
             }
         }
     }
 
-    #region Smart Audio Activity Watchdog (Auto-Pause / Auto-Resume)
+    #region Smart Audio & Call Watchdog (Auto-Pause / WhatsApp Protection / Auto-Resume)
 
     private void StartActivityWatchdog()
     {
         StopActivityWatchdog();
-        // Check audio peak every 200 ms with ultra-low CPU overhead
+        // Check audio peak & call capture every 200 ms with ultra-low CPU overhead
         _activityWatchdogTimer = new System.Threading.Timer(OnActivityWatchdogTick, null, 250, 200);
     }
 
@@ -356,9 +423,44 @@ public sealed class AudioKeepAliveService : IDisposable
                 return;
             }
 
-            if (!_autoPauseOnOtherAudio)
+            // 1. WhatsApp & Microphone Call Protection check:
+            // When user starts a WhatsApp video/voice call, releasing the playback handle completely
+            // allows Windows to switch the Bluetooth profile into Hands-Free / Bidirectional mode without error.
+            if (_callProtectionMode)
             {
-                if (_state == AudioEngineState.PausedByOtherAudio)
+                bool isCallActive = IsCaptureOrCallActive();
+                if (isCallActive)
+                {
+                    _lastCallOrMicDetectedUtc = DateTime.UtcNow;
+
+                    if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio)
+                    {
+                        CleanupOutput();
+                        LogService.Log(LogSeverity.Info, "AudioEngine", "Active call / microphone detected (WhatsApp / VOIP). Released Bluetooth playback handle to grant microphone access.");
+                        SetState(AudioEngineState.PausedByCallOrMic, "Call / Mic active (e.g. WhatsApp video call). Keep-alive endpoint released to enable Bluetooth microphone.");
+                    }
+                    return;
+                }
+                else if (_state == AudioEngineState.PausedByCallOrMic)
+                {
+                    // Grace period after call ends (2500ms) before re-locking playback endpoint
+                    var callEndedMs = (DateTime.UtcNow - _lastCallOrMicDetectedUtc).TotalMilliseconds;
+                    if (callEndedMs >= 2500)
+                    {
+                        ResumeKeepAliveStream();
+                        return;
+                    }
+                    return;
+                }
+            }
+
+            // 2. Continuous Keep-Alive & Foreground Audio Handling
+            if (!_autoPauseOnOtherAudio || AlwaysKeepStreamActive)
+            {
+                // Continuous Mode: In Windows shared-mode audio, our silent stream with anti-sleep dither
+                // mixes transparently with YouTube/Spotify. When media is paused, our stream is ALREADY
+                // active and pumping PCM packets, so the Bluetooth speaker never enters standby or disconnects!
+                if (_state == AudioEngineState.PausedByOtherAudio || _output == null)
                 {
                     ResumeKeepAliveStream();
                 }
@@ -374,27 +476,91 @@ public sealed class AudioKeepAliveService : IDisposable
 
                 if (_state == AudioEngineState.Running)
                 {
-                    // Do not merely Pause(): dispose the output handle so Windows can
-                    // switch Bluetooth devices to the hands-free profile during calls.
-                    CleanupOutput();
-
-                    LogService.Log(LogSeverity.Info, "AudioEngine", $"Other audio playing (peak: {peak:F3}). Released keep-alive endpoint for foreground audio/calls.");
-                    SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Keep-alive endpoint released; it will resume after playback becomes quiet.");
+                    // Gentle pause without tearing down device handle so resume is instantaneous
+                    try { _output?.Pause(); } catch { }
+                    SetState(AudioEngineState.PausedByOtherAudio, "Other audio detected. Keep-alive paused while media plays.");
                 }
             }
             else
             {
-                // Silence detected
+                // Silence detected: user paused media! Immediately resume keepalive stream
                 if (_state == AudioEngineState.PausedByOtherAudio)
                 {
-                    var silenceDurationMs = (DateTime.UtcNow - _lastOtherAudioDetectedUtc).TotalMilliseconds;
-                    if (silenceDurationMs >= _resumeDelayMilliseconds)
+                    ResumeKeepAliveStream();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks whether any active voice/video call or microphone capture stream is open.
+    /// Specifically inspects Windows default communications capture endpoint and active capture sessions.
+    /// </summary>
+    private bool IsCaptureOrCallActive()
+    {
+        try
+        {
+            _mmEnumerator ??= new MMDeviceEnumerator();
+
+            // Check default communications capture device (WhatsApp / Zoom / Skype / Teams)
+            using var commCapture = _mmEnumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+            if (commCapture != null && commCapture.State == DeviceState.Active)
+            {
+                float peak = commCapture.AudioMeterInformation?.MasterPeakValue ?? 0f;
+                if (peak > 0.0005f) return true;
+
+                var sessionManager = commCapture.AudioSessionManager;
+                if (sessionManager != null)
+                {
+                    var sessions = sessionManager.Sessions;
+                    for (int i = 0; i < sessions.Count; i++)
                     {
-                        // Other audio has stopped / paused! Resume silent keep-alive stream automatically
-                        ResumeKeepAliveStream();
+                        var session = sessions[i];
+                        if (session.State == AudioSessionState.AudioSessionStateActive)
+                        {
+                            return true;
+                        }
                     }
                 }
             }
+
+            // Also check default multimedia capture
+            using var multimediaCapture = _mmEnumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+            if (multimediaCapture != null && multimediaCapture.State == DeviceState.Active)
+            {
+                float peak = multimediaCapture.AudioMeterInformation?.MasterPeakValue ?? 0f;
+                if (peak > 0.0005f) return true;
+            }
+        }
+        catch
+        {
+            // Fallback: MMDevice API query failed
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Scans for and automatically selects a connected Bluetooth soundbox or speaker.
+    /// </summary>
+    public bool AutoSelectBluetoothSoundbox()
+    {
+        lock (_syncRoot)
+        {
+            var bt = AudioDeviceService.FindBluetoothSoundbox(_preferredDeviceName);
+            if (bt != null)
+            {
+                _targetDeviceNumber = bt.DeviceNumber;
+                _preferredDeviceName = bt.Name;
+                RefreshCurrentMmDevice();
+                LogService.Log(LogSeverity.Info, "AudioEngine", $"Auto-selected Bluetooth Soundbox: {bt.Name} (ID #{bt.DeviceNumber}).");
+
+                if (_state == AudioEngineState.Running || _state == AudioEngineState.PausedByOtherAudio || _state == AudioEngineState.PausedByCallOrMic)
+                {
+                    RestartStreamInternal();
+                }
+                return true;
+            }
+            return false;
         }
     }
 
@@ -597,6 +763,8 @@ public sealed class AudioKeepAliveService : IDisposable
             {
                 _currentMmDevice?.Dispose();
                 _currentMmDevice = null;
+                _currentCaptureDevice?.Dispose();
+                _currentCaptureDevice = null;
                 _mmEnumerator?.Dispose();
                 _mmEnumerator = null;
             }
